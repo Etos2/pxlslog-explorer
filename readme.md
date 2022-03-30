@@ -29,13 +29,16 @@ It too has a help argument which explains how to use it:
 pxlslog-explorer.exe filter --help
 ```
 
-Inputs to this command are quite simple, follow the syntax hints for tricky filters such as "--after", "--before" and "--region":
+Inputs to this command are quite simple, follow the syntax hints for tricky filters such as "--after", "--before" and "--region".
+Be wary with many filters applied, it can be quite messy:
 
 ```
 // Print straight to STDOUT
-pxlslog-explorer.exe filter pixels_cXX.sanit.log 
+pxlslog-explorer.exe filter pixels_cXX.sanit.log
+
 // Write to mypixels_cXX.log when color == 5
 pxlslog-explorer.exe filter --color 5 pixels_cXX.sanit.log mypixels_cXX.log
+
 // Write to mypixels2_cXX.log when color == 5, after == "2021-04-12T23:56:04" and user = "insert hash here"
 pxlslog-explorer.exe filter --color 5 --after 2021-04-12T23:56:04 --user (insert hash here) pixels_cXX.sanit.log mypixels2_cXX.log
 ```
