@@ -1,0 +1,10 @@
+[package]
+name = "pxlslog-explorer"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+chrono = "0.4.19"
+clap = { version = "3.1.6", features  = ["derive","std","suggestions"], default-features = false }
+hex = "0.4"
+sha2 = "0.10"
