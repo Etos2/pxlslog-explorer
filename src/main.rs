@@ -1,11 +1,11 @@
 mod cli;
 
-use std::fs::{self, File};
-use std::io::{prelude::*, BufReader};
-use std::path::Path;
+use std::fs::{self, OpenOptions};
+use std::io::prelude::*;
 
 use chrono::NaiveDateTime;
 use clap::Parser;
+use rayon::prelude::*;
 use sha2::{Digest, Sha256};
 
 use cli::{Action, Cli, Command, FilterState};
@@ -15,46 +15,39 @@ fn main() {
 
     match cli.command {
         Command::Filter(filter_state) => {
-            // Only filter if required
-            if !is_empty(&filter_state) {
-                let input = BufReader::new(File::open(&filter_state.input).unwrap());
-                match &filter_state.output {
-                    Some(path) => {
-                        if cli.noclobber && Path::new(path).exists() {
-                           return;
-                        }
+            let input = fs::read_to_string(&filter_state.input).unwrap();
 
-                        let mut output = File::create(path).unwrap();
-                        for line in input.lines() {
-                            if is_accepted(&filter_state, &line.as_ref().unwrap()) {
-                                output.write(line.unwrap().as_ref()).unwrap();
-                            }
-                        }
-                    }
-
-                    None => {
-                        for line in input.lines() {
-                            if is_accepted(&filter_state, &line.as_ref().unwrap()) {
-                                println!("{}", line.unwrap());
-                            }
-                        }
-                    }
-                };
-            // No filter, thus simplify
-            } else {
-                let input = fs::read_to_string(&filter_state.input).unwrap();
-                match filter_state.output {
-                    Some(path) => {
-                        File::create(path)
-                            .unwrap()
-                            .write_all(input.as_ref())
-                            .unwrap();
-                    }
-                    None => {
-                        print!("{}", input);
-                    }
-                };
-            }
+            let log = match has_filter(&filter_state) {
+                true => {
+                    let mut lines: Vec<&str> = input.split_terminator("\n").collect();
+                    let chunk_size = lines.len() / num_cpus::get();
+                    lines
+                        .par_chunks_mut(chunk_size)
+                        .flat_map_iter(|chunk| {
+                            chunk
+                                .iter()
+                                .filter(|line| is_filtered(&filter_state, line))
+                                .copied()
+                        })
+                        .collect::<Vec<&str>>()
+                        .join("\n")
+                }
+                // No filter, thus simplified output
+                false => input,
+            };
+            match filter_state.output {
+                Some(path) => {
+                    let mut output = OpenOptions::new()
+                        .create_new(cli.noclobber)
+                        .write(true)
+                        .open(path)
+                        .unwrap();
+                    output.write_all(log.as_bytes()).unwrap();
+                }
+                None => {
+                    print!("{}", log);
+                }
+            };
         }
         // Todo!
         Command::Render(_render) => {
@@ -63,8 +56,8 @@ fn main() {
     }
 }
 
-fn is_accepted(filter: &FilterState, line: &str) -> bool {
-    let tokens: Vec<&str> = line.split_terminator(&['\t', '\n'][..]).collect();
+fn is_filtered(filter: &FilterState, line: &str) -> bool {
+    let tokens: Vec<&str> = line.split_terminator('\t').collect();
     let mut out = true;
 
     if let Some(time) = filter.after {
@@ -92,21 +85,28 @@ fn is_accepted(filter: &FilterState, line: &str) -> bool {
         }
     }
     if let Some(user) = &filter.user {
-        let digest_format = format!(
-            "{},{},{},{},{}",
-            tokens[0], tokens[2], tokens[3], tokens[4], user
-        );
-        let digest = hex::encode(Sha256::digest(&digest_format));
+        let mut hasher = Sha256::new();
+        hasher.update(tokens[0].as_bytes());
+        hasher.update(",");
+        hasher.update(tokens[2].as_bytes());
+        hasher.update(",");
+        hasher.update(tokens[3].as_bytes());
+        hasher.update(",");
+        hasher.update(tokens[4].as_bytes());
+        hasher.update(",");
+        hasher.update(user.as_bytes());
+
+        let digest = hex::encode(hasher.finalize());
         out &= &digest[..] == tokens[1];
     }
     out
 }
 
-fn is_empty(filter: &FilterState) -> bool {
-    filter.after.is_none()
-        && filter.before.is_none()
-        && filter.color.is_none()
-        && filter.region.is_none()
-        && filter.user.is_none()
-        && filter.action.is_none()
+fn has_filter(filter: &FilterState) -> bool {
+    filter.after.is_some()
+        || filter.before.is_some()
+        || filter.color.is_some()
+        || filter.region.is_some()
+        || filter.user.is_some()
+        || filter.action.is_some()
 }

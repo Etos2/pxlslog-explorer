@@ -7,4 +7,6 @@ edition = "2021"
 chrono = "0.4.19"
 clap = { version = "3.1.6", features  = ["derive","std","suggestions"], default-features = false }
 hex = "0.4"
+num_cpus = "1.0"
+rayon = "1.5"
 sha2 = "0.10"
