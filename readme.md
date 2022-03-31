@@ -1,5 +1,5 @@
 # PxlsLog-Explorer
-A simply command line utility program to filter logs and generate timelapses for [pxls.space](https://pxls.space/).
+A simple command line utility program to filter logs and generate timelapses for [pxls.space](https://pxls.space/).
 Designed for pxls.space users to explore their personal logs or to be utilised in mass analysis.
 Forgot where the logs are? They're [here](https://pxls.space/x/logs/). Your personal hashes are located on your profile page.
 
