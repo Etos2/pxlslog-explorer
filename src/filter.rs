@@ -1,6 +1,6 @@
 use std::fmt;
 use std::fs::{self, OpenOptions};
-use std::io::prelude::*;
+use std::io::{self, prelude::*};
 
 use crate::Cli;
 
@@ -10,13 +10,14 @@ use rayon::prelude::*;
 use sha2::{Digest, Sha256};
 
 #[derive(Args)]
-#[clap(about = "Filter logs and output", long_about = None)]
+#[clap(about = "Filter logs and outputs to new file", long_about = None)]
 #[clap(group(ArgGroup::new("hashes").args(&["hash", "hash-src"])))]
+#[clap(group(ArgGroup::new("overwrite").args(&["dst", "modify"])))]
 pub struct FilterInput {
     #[clap(short, long)]
     #[clap(value_name("PATH"))]
-    #[clap(help = "Filepath of input log file", display_order = 0)]
-    src: String,
+    #[clap(help = "Filepath of input log file [Defaults to STDIN]", display_order = 0)]
+    src: Option<String>,
     #[clap(short, long)]
     #[clap(value_name("PATH"))]
     #[clap(
@@ -24,6 +25,9 @@ pub struct FilterInput {
         display_order = 1
     )]
     dst: Option<String>,
+    #[clap(short, long)]
+    #[clap(help = "If input log should be modified with output", display_order = 2)]
+    modify: bool,
     #[clap(long, parse(try_from_str))]
     #[clap(value_name("TIMESTAMP"))]
     #[clap(help = "Only include entries after this date [%Y-%m-%dT%H:%M:%S%.f]")]
@@ -57,7 +61,7 @@ pub struct FilterInput {
 }
 
 pub struct Filter {
-    pub src: String,
+    pub src: Option<String>,
     pub dst: Option<String>,
     pub after: Option<NaiveDateTime>,
     pub before: Option<NaiveDateTime>,
@@ -67,7 +71,7 @@ pub struct Filter {
     pub actions: Vec<Action>,
 }
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, ArgEnum)]
+#[derive(Debug, Copy, Clone, ArgEnum)]
 pub enum Action {
     Place,
     Undo,
@@ -78,11 +82,15 @@ pub enum Action {
 }
 
 impl FilterInput {
+    // TODO: Actually verify some inputs + custom validation errors?
     pub fn validate(&self) -> Result<Filter, std::io::Error> {
         let mut hash = self.hash.to_owned();
         if let Some(src) = &self.hash_src {
             let input = fs::read_to_string(src)?;
-            let lines: Vec<&str> = input.split_whitespace().filter(|&x| !x.is_empty()).collect();
+            let lines: Vec<&str> = input
+                .split_whitespace()
+                .filter(|&x| !x.is_empty())
+                .collect();
             // TODO: Warn when hash ignored
             for line in lines {
                 if line.len() == 512 {
@@ -91,12 +99,23 @@ impl FilterInput {
             }
         }
 
+        let dst = if self.modify && self.src.is_some() {
+            self.src.clone()
+        } else {
+            self.dst.clone()
+        };
+
         let region = match self.region.len() {
             0 => None,
             1 => Some([self.region[0], 0, i32::MAX, i32::MAX]),
             2 => Some([self.region[0], self.region[1], i32::MAX, i32::MAX]),
             3 => Some([self.region[0], self.region[1], self.region[2], i32::MAX]),
-            4 => Some([self.region[0], self.region[1], self.region[2], self.region[3]]),
+            4 => Some([
+                self.region[0],
+                self.region[1],
+                self.region[2],
+                self.region[3],
+            ]),
             _ => unreachable!(),
         };
         if let Some(mut region) = region {
@@ -110,7 +129,7 @@ impl FilterInput {
 
         Ok(Filter {
             src: self.src.to_owned(),
-            dst: self.dst.to_owned(),
+            dst: dst,
             after: self.after,
             before: self.before,
             colors: self.color.to_owned(),
@@ -126,10 +145,17 @@ impl fmt::Display for Filter {
         if self.has_filter() {
             write!(f, "Performing FILTER command with following arguments:")?;
         } else {
-            write!(f, "Performing FILTER command with NO filters (Why would you do this?):")?;
+            write!(
+                f,
+                "Performing FILTER command with NO filters (Why would you do this?):"
+            )?;
         }
 
-        write!(f, "\n  --src:    {}", &self.src)?;
+        if let Some(src) = &self.src {
+            write!(f, "\n  --src:    {}", src)?;
+        } else {
+            write!(f, "\n  --src:    STDIN")?;
+        }
         if let Some(dst) = &self.dst {
             write!(f, "\n  --dst:    {}", dst)?;
         } else {
@@ -152,9 +178,9 @@ impl fmt::Display for Filter {
             write!(f, "\n  --action: {:?}", &self.actions)?;
         }
         if self.hashes.len() > 0 {
-            write!(f, "\n  --user:   {:.16}...", self.hashes[0])?;
+            write!(f, "\n  --user:   {:.32}...", self.hashes[0])?;
             for hash in &self.hashes[1..] {
-                write!(f, "\n            {:.16}...", hash)?;
+                write!(f, "\n            {:.32}...", hash)?;
             }
         }
         Ok(())
@@ -165,10 +191,19 @@ impl Filter {
     pub fn execute(self, settings: &Cli) -> Result<(i32, i32), std::io::Error> {
         let mut passed = 0;
         let mut total = 0;
-        let input = fs::read_to_string(&self.src)?;
-        let log = match self.has_filter() {
+        let input = match &self.src {
+            Some(s) => fs::read_to_string(s)?,
+            None => {
+                let mut buf = String::new();
+                io::stdin().lock().read_to_string(&mut buf)?;
+                buf
+            },
+        };
+
+        let output = match self.has_filter() {
             true => {
-                let mut lines: Vec<&str> = input.split_terminator("\n").collect();
+                let mut lines: Vec<&str> = input.split_terminator(&['\n', '\r'][..]).collect();
+                println!("{}", lines[0]);
                 let chunk_size = lines.len() / settings.threads.unwrap_or(1);
                 let passed_lines = lines
                     .par_chunks_mut(chunk_size)
@@ -183,7 +218,7 @@ impl Filter {
                 passed_lines.join("\n")
             }
             // No filter, thus simplified output
-            // TODO: Determine if program should exit when no filters specified
+            // TODO: Determine if program should exit when no filters specified, because this is a glorified 'cp'/'echo' function
             false => input,
         };
         match &self.dst {
@@ -193,10 +228,10 @@ impl Filter {
                     .create(true)
                     .write(true)
                     .open(path)?
-                    .write_all(log.as_bytes())?;
+                    .write_all(output.as_bytes())?;
             }
             None => {
-                print!("{}", log);
+                print!("{}", output);
             }
         };
         Ok((passed, total))
