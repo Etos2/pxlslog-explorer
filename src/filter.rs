@@ -16,7 +16,10 @@ use sha2::{Digest, Sha256};
 pub struct FilterInput {
     #[clap(short, long)]
     #[clap(value_name("PATH"))]
-    #[clap(help = "Filepath of input log file [Defaults to STDIN]", display_order = 0)]
+    #[clap(
+        help = "Filepath of input log file [Defaults to STDIN]",
+        display_order = 0
+    )]
     src: Option<String>,
     #[clap(short, long)]
     #[clap(value_name("PATH"))]
@@ -26,7 +29,10 @@ pub struct FilterInput {
     )]
     dst: Option<String>,
     #[clap(short, long)]
-    #[clap(help = "If input log should be modified with output", display_order = 2)]
+    #[clap(
+        help = "If input log should be modified with output",
+        display_order = 2
+    )]
     modify: bool,
     #[clap(long, parse(try_from_str))]
     #[clap(value_name("TIMESTAMP"))]
@@ -145,10 +151,7 @@ impl fmt::Display for Filter {
         if self.has_filter() {
             write!(f, "Performing FILTER command with following arguments:")?;
         } else {
-            write!(
-                f,
-                "Performing FILTER command with NO filters (Why would you do this?):"
-            )?;
+            write!(f, "Performing FILTER command with NO filters (Why would you do this?):")?;
         }
 
         if let Some(src) = &self.src {
@@ -197,18 +200,24 @@ impl Filter {
                 let mut buf = String::new();
                 io::stdin().lock().read_to_string(&mut buf)?;
                 buf
-            },
+            }
         };
 
         let output = match self.has_filter() {
             true => {
-                let mut lines: Vec<&str> = input.split_terminator(&['\n', '\r'][..]).collect();
-                println!("{}", lines[0]);
+                let mut lines: Vec<&str> = input
+                    .split_terminator(&['\n', '\r'][..])
+                    .filter(|&s| !s.is_empty())
+                    .collect();
+
                 let chunk_size = lines.len() / settings.threads.unwrap_or(1);
                 let passed_lines = lines
                     .par_chunks_mut(chunk_size)
                     .flat_map_iter(|chunk| {
-                        chunk.iter().filter(|line| self.is_filtered(line)).copied()
+                        chunk
+                            .iter()
+                            .filter(|line| !line.is_empty() && self.is_filtered(line))
+                            .copied()
                     })
                     .collect::<Vec<&str>>();
 
@@ -238,8 +247,12 @@ impl Filter {
     }
 
     fn is_filtered(&self, line: &str) -> bool {
-        let tokens: Vec<&str> = line.split_terminator('\t').collect();
         let mut out = true;
+        let tokens: Vec<&str> = line
+            .split_terminator(&['\t'][..])
+            .filter(|&x| !x.is_empty())
+            .collect();
+
         if let Some(time) = self.after {
             out &=
                 time <= NaiveDateTime::parse_from_str(tokens[0], "%Y-%m-%d %H:%M:%S,%3f").unwrap();
