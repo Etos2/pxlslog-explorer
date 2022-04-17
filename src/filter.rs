@@ -151,7 +151,10 @@ impl fmt::Display for Filter {
         if self.has_filter() {
             write!(f, "Performing FILTER command with following arguments:")?;
         } else {
-            write!(f, "Performing FILTER command with NO filters (Why would you do this?):")?;
+            write!(
+                f,
+                "Performing FILTER command with NO filters (Why would you do this?):"
+            )?;
         }
 
         if let Some(src) = &self.src {
@@ -205,26 +208,23 @@ impl Filter {
 
         let output = match self.has_filter() {
             true => {
-                let mut lines: Vec<&str> = input
-                    .split_terminator(&['\n', '\r'][..])
-                    .filter(|&s| !s.is_empty())
+                let mut tokens: Vec<_> = input
+                    .as_parallel_string()
+                    .par_split_terminator(|c| c == '\n' || c == '\r' || c == '\t')
                     .collect();
+                total = tokens.len() as i32 / 6;
 
-                let chunk_size = lines.len() / settings.threads.unwrap_or(1);
-                let passed_lines = lines
+                let chunk_size = tokens.len() / settings.threads.unwrap_or(1);
+                let passed_tokens = tokens
                     .par_chunks_mut(chunk_size)
-                    .flat_map_iter(|chunk| {
-                        chunk
-                            .iter()
-                            .filter(|line| !line.is_empty() && self.is_filtered(line))
-                            .copied()
-                    })
-                    .collect::<Vec<&str>>();
+                    .flat_map(|chunk| {
+                        chunk.par_chunks(6).filter(|tokens| self.is_filtered(tokens))
+                    }).collect::<Vec<_>>();
+                let collected_tokens = passed_tokens.par_iter().map(|tokens| tokens.join("\t")).collect::<Vec<_>>();
 
-                total = lines.len() as i32;
-                passed = passed_lines.len() as i32;
+                passed = passed_tokens.len() as i32;
 
-                passed_lines.join("\n")
+                collected_tokens.join("\n")
             }
             // No filter, thus simplified output
             // TODO: Determine if program should exit when no filters specified, because this is a glorified 'cp'/'echo' function
@@ -236,6 +236,7 @@ impl Filter {
                     .create_new(settings.noclobber)
                     .create(true)
                     .write(true)
+                    .truncate(true)
                     .open(path)?
                     .write_all(output.as_bytes())?;
             }
@@ -246,12 +247,8 @@ impl Filter {
         Ok((passed, total))
     }
 
-    fn is_filtered(&self, line: &str) -> bool {
+    fn is_filtered(&self, tokens: &[&str]) -> bool {
         let mut out = true;
-        let tokens: Vec<&str> = line
-            .split_terminator(&['\t'][..])
-            .filter(|&x| !x.is_empty())
-            .collect();
 
         if let Some(time) = self.after {
             out &=
