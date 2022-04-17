@@ -35,19 +35,18 @@ pub enum Command {
 
 fn main() {
     let cli = Cli::parse();
-    let thread_count = match cli.threads {
-        Some(threads) => {
-            rayon::ThreadPoolBuilder::new()
-                .num_threads(threads)
-                .build_global()
-                .unwrap(); // Safe
-            threads
-        }
+    let num_threads = match cli.threads {
+        Some(threads) => threads,
         None => num_cpus::get(),
     };
 
+    rayon::ThreadPoolBuilder::new()
+        .num_threads(num_threads)
+        .build_global()
+        .unwrap();
+
     if cli.verbose {
-        println!("Running with {} threads", thread_count);
+        println!("Running with {} threads", num_threads);
         if cli.noclobber {
             println!("Preserving output files");
         }
