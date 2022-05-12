@@ -1,7 +1,8 @@
 mod filter;
 mod render;
+mod parser;
 
-use filter::{FilterInput};
+use filter::FilterInput;
 use render::RenderInput;
 
 use clap::{Parser, Subcommand};
@@ -64,9 +65,15 @@ fn main() {
                 println!("Returned {} of {} entries", result.0, result.1);
             }
         }
-        // TODO: Implement lol
-        Command::Render(_render) => {
-            unimplemented!("soon:tm:")
+        Command::Render(render_input) => {
+            let render = render_input.validate().unwrap();
+            if cli.verbose {
+                println!("{}", render);
+            }
+            let result = render.execute(&cli).unwrap();
+            if cli.verbose {
+                println!("Saved {} frames", result);
+            }
         }
     }
 }

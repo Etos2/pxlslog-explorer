@@ -2,6 +2,7 @@ use std::fmt;
 use std::fs::{self, OpenOptions};
 use std::io::{self, prelude::*};
 
+use crate::parser::PxlsParser;
 use crate::Cli;
 
 use chrono::NaiveDateTime;
@@ -90,7 +91,7 @@ pub enum Action {
 impl FilterInput {
     // TODO: Actually verify some inputs + custom validation errors?
     pub fn validate(&self) -> Result<Filter, std::io::Error> {
-        let mut hash = self.hash.to_owned();
+        let mut hashes = self.hash.to_owned();
         if let Some(src) = &self.hash_src {
             let input = fs::read_to_string(src)?;
             let lines: Vec<&str> = input
@@ -100,7 +101,7 @@ impl FilterInput {
             // TODO: Warn when hash ignored
             for line in lines {
                 if line.len() == 512 {
-                    hash.push(line.to_string());
+                    hashes.push(line.to_string());
                 }
             }
         }
@@ -135,12 +136,12 @@ impl FilterInput {
 
         Ok(Filter {
             src: self.src.to_owned(),
-            dst: dst,
+            dst,
             after: self.after,
             before: self.before,
             colors: self.color.to_owned(),
-            region: region,
-            hashes: hash,
+            region,
+            hashes,
             actions: self.action.to_owned(),
         })
     }
@@ -151,10 +152,7 @@ impl fmt::Display for Filter {
         if self.has_filter() {
             write!(f, "Performing FILTER command with following arguments:")?;
         } else {
-            write!(
-                f,
-                "Performing FILTER command with NO filters (Why would you do this?):"
-            )?;
+            write!(f, "Performing FILTER command with NO filters (Why?):")?;
         }
 
         if let Some(src) = &self.src {
@@ -194,33 +192,35 @@ impl fmt::Display for Filter {
 }
 
 impl Filter {
-    pub fn execute(self, settings: &Cli) -> Result<(i32, i32), std::io::Error> {
+    pub fn execute(self, settings: &Cli) -> io::Result<(i32, i32)> {
         let mut passed = 0;
         let mut total = 0;
-        let input = match &self.src {
-            Some(s) => fs::read_to_string(s)?,
-            None => {
-                let mut buf = String::new();
-                io::stdin().lock().read_to_string(&mut buf)?;
-                buf
-            }
-        };
-
         let output = match self.has_filter() {
             true => {
-                let mut tokens: Vec<_> = input
-                    .as_parallel_string()
-                    .par_split_terminator(|c| c == '\n' || c == '\r' || c == '\t')
-                    .collect();
+                let mut buffer = String::new();
+                let mut tokens = match &self.src {
+                    Some(s) => PxlsParser::parse_raw(
+                        &mut OpenOptions::new().read(true).open(s)?,
+                        &mut buffer,
+                    )?,
+                    None => PxlsParser::parse_raw(&mut io::stdin().lock(), &mut buffer)?,
+                };
+
                 total = tokens.len() as i32 / 6;
 
                 let chunk_size = tokens.len() / settings.threads.unwrap_or(1);
                 let passed_tokens = tokens
                     .par_chunks_mut(chunk_size)
                     .flat_map(|chunk| {
-                        chunk.par_chunks(6).filter(|tokens| self.is_filtered(tokens))
-                    }).collect::<Vec<_>>();
-                let collected_tokens = passed_tokens.par_iter().map(|tokens| tokens.join("\t")).collect::<Vec<_>>();
+                        chunk
+                            .par_chunks(6)
+                            .filter(|tokens| self.is_filtered(tokens))
+                    })
+                    .collect::<Vec<_>>();
+                let collected_tokens = passed_tokens
+                    .par_iter()
+                    .map(|tokens| tokens.join("\t"))
+                    .collect::<Vec<_>>();
 
                 passed = passed_tokens.len() as i32;
 
@@ -228,7 +228,14 @@ impl Filter {
             }
             // No filter, thus simplified output
             // TODO: Determine if program should exit when no filters specified, because this is a glorified 'cp'/'echo' function
-            false => input,
+            false => match &self.src {
+                Some(s) => fs::read_to_string(s)?,
+                None => {
+                    let mut buf = String::new();
+                    io::stdin().lock().read_to_string(&mut buf)?;
+                    buf
+                }
+            },
         };
         match &self.dst {
             Some(path) => {

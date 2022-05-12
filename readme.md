@@ -16,20 +16,16 @@ Forgot where the logs are? They're [here](https://pxls.space/x/logs/). Your pers
 
 ## Usage
 To get on track, seek the help argument.
-This will list basic arguments and display available subcommands:
+This will list basic arguments and display available subcommands.
+Alternatively, use on a subcommand to produce arguments for the subcommand.
 
 ```
 pxlslog-explorer.exe --help
-```
-
-Currently, the filter subcommand is the only implemented subcommand.
-It too has a help argument which explains how to use it:
-
-```
 pxlslog-explorer.exe filter --help
+pxlslog-explorer.exe render --help
 ```
 
-Inputs to this command are quite simple, follow the syntax hints for tricky filters such as "--after", "--before" and "--region".
+The filter subcommand is quite simple, follow the syntax hints for tricky filters such as "--after", "--before" and "--region".
 Be wary with many filters applied, it can be quite messy:
 
 ```
@@ -43,28 +39,30 @@ pxlslog-explorer.exe filter --color 5 pixels_cXX.sanit.log mypixels_cXX.log
 pxlslog-explorer.exe filter --color 5 --after 2021-04-12T23:56:04 --user (insert hash here) pixels_cXX.sanit.log mypixels2_cXX.log
 ```
 
+The render subcommand accepts a log file and produces frames in the desired format.
+See the [image](https://crates.io/crates/image) crate for supported image formats.
+
+```
+// Using background as source, produce a frame every 5 minutes in the PNG format
+pxlslog-explorer.exe render -s logs/pixels_cXX.sanit.log -d out/cXX.png --bg canvas/cXX.png --step 300000
+```
 
 ## The future
 This program is certainly going to evolve as new use cases are discovered.
 As such, the intention is to accept feedback and adapt to what users desire to suit their needs.
 The scope of this program is intentially minimalistic so it can be expanded on or used as a foundation in other personal projects.
-Implementing rendering capabilities is already a stretch, and this should be considered when viewing the potential additions below.
 
 ### Potential future features:
 - Render subcommand
-  - Generate timelapses
-  - Generate images
+  - STDOUT directly to ffmpeg
+  - Generate static images
   - Alter renders to produce Heatmaps or Virginmaps
-  - Consequently integrating palettes and canvas backgrounds
+  - Integrating palettes
 - An actual GUI
   - Probably not
 
 ### Potential improvements:
 - General optimisations
-- More friendly input methods
-  - Accept a file for user hash
-  - Accept multiple inputs per filter
 - Alternative output formats (.csv, etc)
 - Statistics generation
 - More error handling (if you somehow mess up a log file)
-- Verbosity setting (if needed)
