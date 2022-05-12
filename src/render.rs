@@ -255,26 +255,7 @@ impl Render {
 
         frames
     }
-
-    fn no_get_frame_slices(pixels: &[PixelAction], step: i64) -> Vec<&[PixelAction]> {
-        let mut frames = vec![];
-        let mut start = 0;
-        let mut cutoff = pixels[0].delta + step;
-
-        for (end, pixel) in pixels.iter().enumerate() {
-            if pixel.delta >= cutoff {
-                cutoff += step;
-                start = end;
-                frames.push(&pixels[start..=end]);
-            }
-        }
-        if start != pixels.len() - 1 {
-            frames.push(&pixels[start..]);
-        }
-
-        frames
-    }
-
+    
     fn get_frame(background: &RgbaImage, pixels: &[PixelAction], palette: &[[u8; 4]]) -> RgbaImage {
         let mut frame = background.clone();
         for pixel in pixels {
