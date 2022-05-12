@@ -1,3 +1,6 @@
 /target
 /logs
+/out
+/canvas
+/.vscode
 Cargo.lock
