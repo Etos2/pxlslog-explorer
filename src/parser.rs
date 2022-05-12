@@ -2,11 +2,6 @@ use std::io::{self, Read};
 
 use rayon::prelude::*;
 
-// TODO: CSV, etc
-pub enum FileType {
-    Log,
-}
-
 pub struct PxlsParser {}
 
 impl PxlsParser {
@@ -35,9 +30,5 @@ impl PxlsParser {
             .filter(|t| !t.is_empty())
             .collect();
         Ok(temp.par_chunks(6).map(|s| parser(s)).collect())
-    }
-
-    fn get_type() -> FileType {
-        unimplemented!()
     }
 }
