@@ -78,6 +78,25 @@ const PALETTE: [[u8; 4]; 33] = [
     [116, 12, 0, 255],    // Maroon
 ];
 
+// TODO: Clean
+// const PALETTE: [[u8; 4]; 15] = [
+//     [0, 0, 0, 0],
+//     [5, 22, 32, 255],
+//     [49, 105, 80, 255],
+//     [134, 192, 108, 255],
+//     [223, 248, 209, 255],
+//     [0, 0, 0, 255],
+//     [34, 34, 34, 255],
+//     [85, 85, 85, 255],
+//     [136, 136, 136, 255],
+//     [205, 205, 205, 255],
+//     [255, 255, 255, 255],
+//     [36, 181, 254, 255],
+//     [19, 92, 199, 255],
+//     [240, 37, 35, 255],
+//     [177, 18, 6, 255],
+// ];
+
 #[derive(Debug, Copy, Clone)]
 pub struct PixelAction {
     x: u32,
@@ -93,7 +112,7 @@ pub struct Render {
     background: RgbaImage,
     style: RenderType,
     step: i64,
-    palette: [[u8; 4]; 33],
+    palette: Vec<[u8; 4]>,
 }
 
 #[derive(Debug, Copy, Clone, ArgEnum)]
@@ -151,7 +170,7 @@ impl RenderInput {
             background,
             style,
             step: self.step.unwrap_or(0),
-            palette: PALETTE, // TODO: Allow user input
+            palette: PALETTE.to_vec(), // TODO: Allow user input
         })
     }
 }
@@ -186,9 +205,11 @@ impl Render {
         let frames = Self::get_frame_slices(&pixels, self.step);
         let mut current_frame = self.background;
 
-        current_frame
-            .save(format!("{}_{}.{}", dst.0, 0, dst.1))
-            .unwrap();
+        if self.step != 0 {
+            current_frame
+                .save(format!("{}_{}.{}", dst.0, 0, dst.1))
+                .unwrap();
+        }
 
         if settings.verbose {
             println!("Rendering {} frames", frames.len());
@@ -240,22 +261,25 @@ impl Render {
         let mut frames: Vec<&[PixelAction]> = vec![];
         let mut start = 0;
 
-        for (end, pair) in pixels.windows(2).enumerate() {
-            let diff = pair[1].delta / step - pair[0].delta / step;
-            if diff > 0 {
-                frames.push(&pixels[start..=end]);
-                start = end;
-
-                for _ in 1..diff {
-                    frames.push(&[]);
+        if step != 0 {
+            for (end, pair) in pixels.windows(2).enumerate() {
+                let diff = pair[1].delta / step - pair[0].delta / step;
+                if diff > 0 {
+                    frames.push(&pixels[start..=end]);
+                    start = end;
+    
+                    for _ in 1..diff {
+                        frames.push(&[]);
+                    }
                 }
             }
+            frames.push(&pixels[start..]);
+        } else {
+            frames.push(&pixels);
         }
-        frames.push(&pixels[start..]);
 
         frames
     }
-    
     fn get_frame(background: &RgbaImage, pixels: &[PixelAction], palette: &[[u8; 4]]) -> RgbaImage {
         let mut frame = background.clone();
         for pixel in pixels {
