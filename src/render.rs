@@ -1,6 +1,7 @@
 use std::fmt;
 use std::fs::OpenOptions;
-use std::io;
+use std::io::{self, Write};
+use std::process::{Command, Stdio};
 
 use crate::parser::PxlsParser;
 use crate::Cli;
@@ -21,13 +22,12 @@ pub struct RenderInput {
     #[clap(short, long)]
     #[clap(value_name("PATH"))]
     #[clap(help = "Filepath of output image file", display_order = 1)]
-    dst: String,
+    dst: Option<String>,
     #[clap(short, long)]
     #[clap(value_name("PATH"))]
-    #[clap(conflicts_with("src_bg"))]
     #[clap(help = "Filepath of background image")]
     bg: Option<String>,
-    #[clap(short, long)]
+    #[clap(long)]
     #[clap(max_values(2))]
     #[clap(min_values(2))]
     #[clap(value_name("SIZE"))]
@@ -39,6 +39,9 @@ pub struct RenderInput {
     #[clap(long)]
     #[clap(help = "Time between frames")]
     step: Option<i64>,
+    #[clap(short, long)]
+    #[clap(help = "Command to recieve raw frames")]
+    cmd: String,
 }
 
 // TODO: Clean
@@ -107,12 +110,13 @@ pub struct PixelAction {
 
 pub struct Render {
     src: String,
-    dst: String,
+    dst: Option<String>,
     src_bg: Option<String>,
     background: RgbaImage,
     style: RenderType,
     step: i64,
     palette: Vec<[u8; 4]>,
+    cmd: String,
 }
 
 #[derive(Debug, Copy, Clone, ArgEnum)]
@@ -165,12 +169,13 @@ impl RenderInput {
 
         Ok(Render {
             src: self.src.to_owned(),
-            dst: self.dst.to_owned(),
+            dst: self.dst.clone(),
             src_bg: self.bg.to_owned(),
             background,
             style,
             step: self.step.unwrap_or(0),
             palette: PALETTE.to_vec(), // TODO: Allow user input
+            cmd: self.cmd.to_owned(),
         })
     }
 }
@@ -180,7 +185,11 @@ impl fmt::Display for Render {
         write!(f, "Performing RENDER command with following arguments:")?;
 
         write!(f, "\n  --src:    {}", self.src)?;
-        write!(f, "\n  --dst:    {}", self.dst)?;
+        if let Some(path) = &self.dst {
+            write!(f, "\n  --dst:    {}", path)?;
+        } else {
+            write!(f, "\n  --dst:    STDOUT")?;
+        }
         if let Some(path) = &self.src_bg {
             write!(f, "\n  --bg:     {}", path)?;
         } else {
@@ -193,6 +202,7 @@ impl fmt::Display for Render {
         }
         write!(f, "\n  --step:   {}", self.step)?;
         write!(f, "\n  --type:   {:?}", self.style)?;
+        write!(f, "\n  --cmd:    {}", self.cmd)?;
 
         Ok(())
     }
@@ -200,21 +210,28 @@ impl fmt::Display for Render {
 
 impl Render {
     pub fn execute(self, settings: &Cli) -> io::Result<usize> {
-        let dst = self.dst.rsplit_once('.').unwrap();
         let pixels = Self::get_pixels(&self.src)?;
         let frames = Self::get_frame_slices(&pixels, self.step);
         let mut current_frame = self.background;
-
-        if self.step != 0 {
-            current_frame
-                .save(format!("{}_{}.{}", dst.0, 0, dst.1))
-                .unwrap();
-        }
 
         if settings.verbose {
             println!("Rendering {} frames", frames.len());
         }
 
+        let args: Vec<&str> = self.cmd.split_terminator(&['"', ' '][..]).collect();
+        let mut child = Command::new(args[0])
+            .args(&args[1..])
+            .stdin(Stdio::piped())
+            .spawn()
+            .expect("Program failed.");
+        let mut stdin = child.stdin.as_mut().expect("Pipe failure");
+
+        if self.step != 0 {
+            match &self.dst {
+                Some(path) => Self::frame_to_file(&current_frame, &path, 0),
+                None => Self::frame_to_raw(&current_frame, &mut stdin),
+            }
+        }
         for (i, frame) in frames.iter().enumerate() {
             if !frame.is_empty() {
                 current_frame = match self.style {
@@ -224,16 +241,26 @@ impl Render {
                 };
             }
 
-            current_frame
-                .save(format!("{}_{}.{}", dst.0, i + 1, dst.1))
-                .unwrap();
-
-            if settings.verbose && (i + 1) % 250 == 0 {
-                println!("Rendered {} frames", i + 1);
+            match &self.dst {
+                Some(path) => Self::frame_to_file(&current_frame, &path, i),
+                None => Self::frame_to_raw(&current_frame, &mut stdin),
             }
         }
 
+        child.wait_with_output().expect("Failed to wait on child!");
         Ok(frames.len())
+    }
+
+    // TODO: Error handling
+    fn frame_to_file(frame: &RgbaImage, path: &str, i: usize) {
+        let dst = path.rsplit_once('.').unwrap();
+        frame.save(format!("{}_{}.{}", dst.0, i, dst.1)).unwrap();
+    }
+
+    fn frame_to_raw<R: Write>(frame: &RgbaImage, writer: &mut R) {
+        let mut reader = &frame.as_raw()[..];
+        std::io::copy(&mut reader, writer).unwrap();
+        writer.flush().unwrap();
     }
 
     // TODO: Better error handling
@@ -267,7 +294,6 @@ impl Render {
                 if diff > 0 {
                     frames.push(&pixels[start..=end]);
                     start = end;
-    
                     for _ in 1..diff {
                         frames.push(&[]);
                     }
@@ -280,6 +306,7 @@ impl Render {
 
         frames
     }
+
     fn get_frame(background: &RgbaImage, pixels: &[PixelAction], palette: &[[u8; 4]]) -> RgbaImage {
         let mut frame = background.clone();
         for pixel in pixels {
