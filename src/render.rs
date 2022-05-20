@@ -1,7 +1,6 @@
 use std::fmt;
 use std::fs::OpenOptions;
-use std::io::{self, Write};
-use std::process::{Command, Stdio};
+use std::io::{self, Read, Write};
 
 use crate::parser::PxlsParser;
 use crate::Cli;
@@ -11,7 +10,6 @@ use clap::{ArgEnum, Args};
 use image::io::Reader as ImageReader;
 use image::{ImageBuffer, RgbaImage};
 
-// TODO
 #[derive(Args)]
 #[clap(about = "Render timelapses and other imagery", long_about = None)]
 pub struct RenderInput {
@@ -39,9 +37,6 @@ pub struct RenderInput {
     #[clap(long)]
     #[clap(help = "Time between frames")]
     step: Option<i64>,
-    #[clap(short, long)]
-    #[clap(help = "Command to recieve raw frames")]
-    cmd: String,
 }
 
 // TODO: Clean
@@ -116,7 +111,6 @@ pub struct Render {
     style: RenderType,
     step: i64,
     palette: Vec<[u8; 4]>,
-    cmd: String,
 }
 
 #[derive(Debug, Copy, Clone, ArgEnum)]
@@ -175,7 +169,6 @@ impl RenderInput {
             style,
             step: self.step.unwrap_or(0),
             palette: PALETTE.to_vec(), // TODO: Allow user input
-            cmd: self.cmd.to_owned(),
         })
     }
 }
@@ -187,7 +180,7 @@ impl fmt::Display for Render {
         write!(f, "\n  --src:    {}", self.src)?;
         if let Some(path) = &self.dst {
             write!(f, "\n  --dst:    {}", path)?;
-        } else {
+        }  else {
             write!(f, "\n  --dst:    STDOUT")?;
         }
         if let Some(path) = &self.src_bg {
@@ -202,7 +195,7 @@ impl fmt::Display for Render {
         }
         write!(f, "\n  --step:   {}", self.step)?;
         write!(f, "\n  --type:   {:?}", self.style)?;
-        write!(f, "\n  --cmd:    {}", self.cmd)?;
+        
 
         Ok(())
     }
@@ -218,18 +211,12 @@ impl Render {
             println!("Rendering {} frames", frames.len());
         }
 
-        let args: Vec<&str> = self.cmd.split_terminator(&['"', ' '][..]).collect();
-        let mut child = Command::new(args[0])
-            .args(&args[1..])
-            .stdin(Stdio::piped())
-            .spawn()
-            .expect("Program failed.");
-        let mut stdin = child.stdin.as_mut().expect("Pipe failure");
+        let stdin = io::stdout();
 
         if self.step != 0 {
             match &self.dst {
                 Some(path) => Self::frame_to_file(&current_frame, &path, 0),
-                None => Self::frame_to_raw(&current_frame, &mut stdin),
+                None => Self::frame_to_raw(&current_frame, &mut stdin.lock()),
             }
         }
         for (i, frame) in frames.iter().enumerate() {
@@ -241,13 +228,13 @@ impl Render {
                 };
             }
 
+            eprintln!("{}", i);
             match &self.dst {
                 Some(path) => Self::frame_to_file(&current_frame, &path, i),
-                None => Self::frame_to_raw(&current_frame, &mut stdin),
+                None => Self::frame_to_raw(&current_frame, &mut stdin.lock()),
             }
         }
 
-        child.wait_with_output().expect("Failed to wait on child!");
         Ok(frames.len())
     }
 
@@ -257,10 +244,10 @@ impl Render {
         frame.save(format!("{}_{}.{}", dst.0, i, dst.1)).unwrap();
     }
 
-    fn frame_to_raw<R: Write>(frame: &RgbaImage, writer: &mut R) {
-        let mut reader = &frame.as_raw()[..];
-        std::io::copy(&mut reader, writer).unwrap();
-        writer.flush().unwrap();
+    fn frame_to_raw<R: Write>(frame: &RgbaImage, out: &mut R) {
+        let buf = &frame.as_raw()[..];
+        out.write_all(buf).unwrap();
+        out.flush().unwrap();
     }
 
     // TODO: Better error handling
