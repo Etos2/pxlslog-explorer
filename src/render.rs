@@ -1,6 +1,6 @@
 use std::fmt;
 use std::fs::OpenOptions;
-use std::io::{self, Read, Write};
+use std::io::{self, Write};
 
 use crate::parser::PxlsParser;
 use crate::Cli;
@@ -228,7 +228,6 @@ impl Render {
                 };
             }
 
-            eprintln!("{}", i);
             match &self.dst {
                 Some(path) => Self::frame_to_file(&current_frame, &path, i),
                 None => Self::frame_to_raw(&current_frame, &mut stdin.lock()),
