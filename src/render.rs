@@ -1,6 +1,6 @@
 use std::fmt;
 use std::fs::OpenOptions;
-use std::io;
+use std::io::{self, Read, Write};
 
 use crate::parser::PxlsParser;
 use crate::Cli;
@@ -10,7 +10,6 @@ use clap::{ArgEnum, Args};
 use image::io::Reader as ImageReader;
 use image::{ImageBuffer, RgbaImage};
 
-// TODO
 #[derive(Args)]
 #[clap(about = "Render timelapses and other imagery", long_about = None)]
 pub struct RenderInput {
@@ -21,13 +20,12 @@ pub struct RenderInput {
     #[clap(short, long)]
     #[clap(value_name("PATH"))]
     #[clap(help = "Filepath of output image file", display_order = 1)]
-    dst: String,
+    dst: Option<String>,
     #[clap(short, long)]
     #[clap(value_name("PATH"))]
-    #[clap(conflicts_with("src_bg"))]
     #[clap(help = "Filepath of background image")]
     bg: Option<String>,
-    #[clap(short, long)]
+    #[clap(long)]
     #[clap(max_values(2))]
     #[clap(min_values(2))]
     #[clap(value_name("SIZE"))]
@@ -78,6 +76,25 @@ const PALETTE: [[u8; 4]; 33] = [
     [116, 12, 0, 255],    // Maroon
 ];
 
+// TODO: Clean
+// const PALETTE: [[u8; 4]; 15] = [
+//     [0, 0, 0, 0],
+//     [5, 22, 32, 255],
+//     [49, 105, 80, 255],
+//     [134, 192, 108, 255],
+//     [223, 248, 209, 255],
+//     [0, 0, 0, 255],
+//     [34, 34, 34, 255],
+//     [85, 85, 85, 255],
+//     [136, 136, 136, 255],
+//     [205, 205, 205, 255],
+//     [255, 255, 255, 255],
+//     [36, 181, 254, 255],
+//     [19, 92, 199, 255],
+//     [240, 37, 35, 255],
+//     [177, 18, 6, 255],
+// ];
+
 #[derive(Debug, Copy, Clone)]
 pub struct PixelAction {
     x: u32,
@@ -88,12 +105,12 @@ pub struct PixelAction {
 
 pub struct Render {
     src: String,
-    dst: String,
+    dst: Option<String>,
     src_bg: Option<String>,
     background: RgbaImage,
     style: RenderType,
     step: i64,
-    palette: [[u8; 4]; 33],
+    palette: Vec<[u8; 4]>,
 }
 
 #[derive(Debug, Copy, Clone, ArgEnum)]
@@ -146,12 +163,12 @@ impl RenderInput {
 
         Ok(Render {
             src: self.src.to_owned(),
-            dst: self.dst.to_owned(),
+            dst: self.dst.clone(),
             src_bg: self.bg.to_owned(),
             background,
             style,
             step: self.step.unwrap_or(0),
-            palette: PALETTE, // TODO: Allow user input
+            palette: PALETTE.to_vec(), // TODO: Allow user input
         })
     }
 }
@@ -161,7 +178,11 @@ impl fmt::Display for Render {
         write!(f, "Performing RENDER command with following arguments:")?;
 
         write!(f, "\n  --src:    {}", self.src)?;
-        write!(f, "\n  --dst:    {}", self.dst)?;
+        if let Some(path) = &self.dst {
+            write!(f, "\n  --dst:    {}", path)?;
+        }  else {
+            write!(f, "\n  --dst:    STDOUT")?;
+        }
         if let Some(path) = &self.src_bg {
             write!(f, "\n  --bg:     {}", path)?;
         } else {
@@ -174,6 +195,7 @@ impl fmt::Display for Render {
         }
         write!(f, "\n  --step:   {}", self.step)?;
         write!(f, "\n  --type:   {:?}", self.style)?;
+        
 
         Ok(())
     }
@@ -181,19 +203,22 @@ impl fmt::Display for Render {
 
 impl Render {
     pub fn execute(self, settings: &Cli) -> io::Result<usize> {
-        let dst = self.dst.rsplit_once('.').unwrap();
         let pixels = Self::get_pixels(&self.src)?;
         let frames = Self::get_frame_slices(&pixels, self.step);
         let mut current_frame = self.background;
-
-        current_frame
-            .save(format!("{}_{}.{}", dst.0, 0, dst.1))
-            .unwrap();
 
         if settings.verbose {
             println!("Rendering {} frames", frames.len());
         }
 
+        let stdin = io::stdout();
+
+        if self.step != 0 {
+            match &self.dst {
+                Some(path) => Self::frame_to_file(&current_frame, &path, 0),
+                None => Self::frame_to_raw(&current_frame, &mut stdin.lock()),
+            }
+        }
         for (i, frame) in frames.iter().enumerate() {
             if !frame.is_empty() {
                 current_frame = match self.style {
@@ -203,16 +228,26 @@ impl Render {
                 };
             }
 
-            current_frame
-                .save(format!("{}_{}.{}", dst.0, i + 1, dst.1))
-                .unwrap();
-
-            if settings.verbose && (i + 1) % 250 == 0 {
-                println!("Rendered {} frames", i + 1);
+            eprintln!("{}", i);
+            match &self.dst {
+                Some(path) => Self::frame_to_file(&current_frame, &path, i),
+                None => Self::frame_to_raw(&current_frame, &mut stdin.lock()),
             }
         }
 
         Ok(frames.len())
+    }
+
+    // TODO: Error handling
+    fn frame_to_file(frame: &RgbaImage, path: &str, i: usize) {
+        let dst = path.rsplit_once('.').unwrap();
+        frame.save(format!("{}_{}.{}", dst.0, i, dst.1)).unwrap();
+    }
+
+    fn frame_to_raw<R: Write>(frame: &RgbaImage, out: &mut R) {
+        let buf = &frame.as_raw()[..];
+        out.write_all(buf).unwrap();
+        out.flush().unwrap();
     }
 
     // TODO: Better error handling
@@ -240,22 +275,25 @@ impl Render {
         let mut frames: Vec<&[PixelAction]> = vec![];
         let mut start = 0;
 
-        for (end, pair) in pixels.windows(2).enumerate() {
-            let diff = pair[1].delta / step - pair[0].delta / step;
-            if diff > 0 {
-                frames.push(&pixels[start..=end]);
-                start = end;
-
-                for _ in 1..diff {
-                    frames.push(&[]);
+        if step != 0 {
+            for (end, pair) in pixels.windows(2).enumerate() {
+                let diff = pair[1].delta / step - pair[0].delta / step;
+                if diff > 0 {
+                    frames.push(&pixels[start..=end]);
+                    start = end;
+                    for _ in 1..diff {
+                        frames.push(&[]);
+                    }
                 }
             }
+            frames.push(&pixels[start..]);
+        } else {
+            frames.push(&pixels);
         }
-        frames.push(&pixels[start..]);
 
         frames
     }
-    
+
     fn get_frame(background: &RgbaImage, pixels: &[PixelAction], palette: &[[u8; 4]]) -> RgbaImage {
         let mut frame = background.clone();
         for pixel in pixels {
