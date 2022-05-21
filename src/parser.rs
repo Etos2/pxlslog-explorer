@@ -49,7 +49,7 @@ impl PaletteParser {
             Some("json") => Ok(Self::parse_json(&mut file)?),
             Some("csv") => Ok(Self::parse_csv(&mut file)?),
             Some("gpl") => unimplemented!(),
-            Some("txt") => unimplemented!(),
+            Some("txt") => Ok(Self::parse_txt(&mut file)?),
             Some(_) => panic!("Palette not supported!"), // TODO: Custom error
             None => unreachable!(),
         }
@@ -64,7 +64,6 @@ impl PaletteParser {
         input.read_to_string(&mut buffer)?;
 
         let v: Value = serde_json::from_str(&buffer)?;
-        // TODO: Unwrap goes brrrrrrrrrrrrrrrrrrrrrrrrt
         v["palette"]
             .as_array()
             .unwrap()
@@ -88,6 +87,19 @@ impl PaletteParser {
         buffer.split_terminator(&['\n'][..]).skip(1).map(|line| {
             let rgb = line.split_terminator(&[','][..]).skip(2).map(|s| s.parse::<u8>().unwrap()).collect::<Vec<u8>>();
             Ok([rgb[0], rgb[1], rgb[2], 255])
+        }).collect::<Result<Vec<[u8; 4]>,_>>()
+    }
+
+    pub fn parse_txt<R>(input: &mut R) -> Result<Vec<[u8; 4]>, Box<dyn std::error::Error>>
+    where
+        R: Read,
+    {
+        let mut buffer = String::new();
+        input.read_to_string(&mut buffer)?;
+
+        buffer.split_terminator(&['\n'][..]).skip(1).map(|line| {
+            let rgba = <[u8; 4]>::from_hex(line.split_terminator(&[' '][..]).next().unwrap())?;
+            Ok([rgba[1], rgba[2], rgba[3], rgba[0]])
         }).collect::<Result<Vec<[u8; 4]>,_>>()
     }
 }
