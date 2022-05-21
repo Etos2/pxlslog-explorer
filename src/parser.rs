@@ -47,8 +47,9 @@ impl PaletteParser {
 
         match Path::new(path).extension().and_then(OsStr::to_str) {
             Some("json") => Ok(Self::parse_json(&mut file)?),
+            Some("aco") => unimplemented!(),
             Some("csv") => Ok(Self::parse_csv(&mut file)?),
-            Some("gpl") => unimplemented!(),
+            Some("gpl") => Ok(Self::parse_gpl(&mut file)?),
             Some("txt") => Ok(Self::parse_txt(&mut file)?),
             Some(_) => panic!("Palette not supported!"), // TODO: Custom error
             None => unreachable!(),
@@ -100,6 +101,19 @@ impl PaletteParser {
         buffer.split_terminator(&['\n'][..]).skip(1).map(|line| {
             let rgba = <[u8; 4]>::from_hex(line.split_terminator(&[' '][..]).next().unwrap())?;
             Ok([rgba[1], rgba[2], rgba[3], rgba[0]])
+        }).collect::<Result<Vec<[u8; 4]>,_>>()
+    }
+
+    pub fn parse_gpl<R>(input: &mut R) -> Result<Vec<[u8; 4]>, Box<dyn std::error::Error>>
+    where
+        R: Read,
+    {
+        let mut buffer = String::new();
+        input.read_to_string(&mut buffer)?;
+
+        buffer.rsplit_once(&['#'][..]).unwrap().1.split_terminator(&['\n'][..]).filter(|s| !s.is_empty()).map(|line| {
+            let rgb = line.split_terminator(&[' '][..]).filter_map(|s| s.parse::<u8>().ok()).collect::<Vec<u8>>();
+            Ok([rgb[0], rgb[1], rgb[2], 255])
         }).collect::<Result<Vec<[u8; 4]>,_>>()
     }
 }
