@@ -2,7 +2,7 @@ use std::fmt;
 use std::fs::OpenOptions;
 use std::io::{self, Write};
 
-use crate::parser::PxlsParser;
+use crate::parser::{PaletteParser, PxlsParser};
 use crate::Cli;
 
 use chrono::NaiveDateTime;
@@ -32,6 +32,10 @@ pub struct RenderInput {
     #[clap(value_name("PATH"))]
     #[clap(help = "Filepath of background image")]
     bg: Option<String>,
+    #[clap(short, long)]
+    #[clap(value_name("PATH"))]
+    #[clap(help = "Filepath of palette (.json)")]
+    palette: Option<String>,
     #[clap(long)]
     #[clap(max_values(2))]
     #[clap(min_values(2))]
@@ -181,6 +185,13 @@ impl RenderInput {
             skip += 1;
         }
 
+        let palette = match &self.palette {
+            Some(path) => {
+                PaletteParser::parse_json(&mut OpenOptions::new().read(true).open(path).unwrap()).unwrap()
+            },
+            None => PALETTE.to_vec(),
+        };
+
         Ok(Render {
             src: self.src.to_owned(),
             dst: self.dst.clone(),
@@ -189,7 +200,7 @@ impl RenderInput {
             style,
             step,
             skip,
-            palette: PALETTE.to_vec(), // TODO: Allow user input
+            palette,
         })
     }
 }
@@ -214,6 +225,7 @@ impl fmt::Display for Render {
                 self.background.height()
             )?;
         }
+
         write!(f, "\n  --step:   {}", self.step)?;
         write!(f, "\n  --type:   {:?}", self.style)?;
 
