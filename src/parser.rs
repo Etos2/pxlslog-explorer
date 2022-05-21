@@ -47,7 +47,7 @@ impl PaletteParser {
 
         match Path::new(path).extension().and_then(OsStr::to_str) {
             Some("json") => Ok(Self::parse_json(&mut file)?),
-            Some("csv") => unimplemented!(),
+            Some("csv") => Ok(Self::parse_csv(&mut file)?),
             Some("gpl") => unimplemented!(),
             Some("txt") => unimplemented!(),
             Some(_) => panic!("Palette not supported!"), // TODO: Custom error
@@ -75,5 +75,19 @@ impl PaletteParser {
                 Ok([rgb[0], rgb[1], rgb[2], 255])
             })
             .collect::<Result<Vec<[u8; 4]>,_>>()
+    }
+
+    // TODO: Smarter?
+    pub fn parse_csv<R>(input: &mut R) -> Result<Vec<[u8; 4]>, Box<dyn std::error::Error>>
+    where
+        R: Read,
+    {
+        let mut buffer = String::new();
+        input.read_to_string(&mut buffer)?;
+
+        buffer.split_terminator(&['\n'][..]).skip(1).map(|line| {
+            let rgb = line.split_terminator(&[','][..]).skip(2).map(|s| s.parse::<u8>().unwrap()).collect::<Vec<u8>>();
+            Ok([rgb[0], rgb[1], rgb[2], 255])
+        }).collect::<Result<Vec<[u8; 4]>,_>>()
     }
 }
