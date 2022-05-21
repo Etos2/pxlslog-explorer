@@ -50,6 +50,7 @@ pub struct FilterInput {
     color: Vec<i32>,
     #[clap(long, parse(try_from_str))]
     #[clap(max_values(4))]
+    #[clap(value_name("INT"))]
     #[clap(help = "Only include entries within a region [\"x1 y1 x2 y2\"]")]
     region: Vec<i32>,
     #[clap(long)]
@@ -63,6 +64,7 @@ pub struct FilterInput {
     hash_src: Option<String>,
     #[clap(long, arg_enum)]
     #[clap(multiple_values(true))]
+    #[clap(value_name("ENUM"))]
     #[clap(help = "Only include entries with this action", display_order = 9999)]
     action: Vec<Action>,
 }
