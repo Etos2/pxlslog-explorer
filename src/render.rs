@@ -95,24 +95,6 @@ const PALETTE: [[u8; 4]; 32] = [
     [116, 12, 0, 255],    // Maroon
 ];
 
-// TODO: Clean
-// const PALETTE: [[u8; 3]; 15] = [
-//     [5, 22, 32],
-//     [49, 105, 80],
-//     [134, 192, 108],
-//     [223, 248, 209],
-//     [0, 0, 0],
-//     [34, 34, 34],
-//     [85, 85, 85],
-//     [136, 136, 136],
-//     [205, 205, 205],
-//     [255, 255, 255],
-//     [36, 181, 254],
-//     [19, 92, 199],
-//     [240, 37, 35],
-//     [177, 18, 6],
-// ];
-
 #[derive(Debug, Copy, Clone)]
 pub struct PixelAction {
     x: u32,
@@ -187,7 +169,7 @@ impl RenderInput {
 
         let palette = match &self.palette {
             Some(path) => {
-                PaletteParser::parse_json(&mut OpenOptions::new().read(true).open(path).unwrap()).unwrap()
+                PaletteParser::try_parse(&path).unwrap()
             },
             None => PALETTE.to_vec(),
         };
