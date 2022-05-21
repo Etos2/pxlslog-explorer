@@ -2,7 +2,7 @@ use std::fmt;
 use std::fs::OpenOptions;
 use std::io::{self, Write};
 
-use crate::parser::{PaletteParser, PxlsParser};
+use crate::parser::{PaletteParser, ParserError, PxlsParser};
 use crate::Cli;
 
 use chrono::NaiveDateTime;
@@ -216,7 +216,7 @@ impl fmt::Display for Render {
 }
 
 impl Render {
-    pub fn execute(self, settings: &Cli) -> io::Result<usize> {
+    pub fn execute(self, settings: &Cli) -> Result<usize, ParserError> {
         let stdin = io::stdout();
         let pixels = Self::get_pixels(&self.src)?;
         let frames = Self::get_frame_slices(&pixels, self.step);
@@ -260,7 +260,7 @@ impl Render {
 
     // TODO: Better error handling
     // TODO: External io
-    fn get_pixels(path: &str) -> io::Result<Vec<PixelAction>> {
+    fn get_pixels(path: &str) -> Result<Vec<PixelAction>, ParserError> {
         PxlsParser::parse(
             &mut OpenOptions::new().read(true).open(path)?,
             |s: &[&str]| -> PixelAction {

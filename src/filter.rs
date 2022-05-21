@@ -2,7 +2,7 @@ use std::fmt;
 use std::fs::{self, OpenOptions};
 use std::io::{self, prelude::*};
 
-use crate::parser::PxlsParser;
+use crate::parser::{ParserError, PxlsParser};
 use crate::Cli;
 
 use chrono::NaiveDateTime;
@@ -194,7 +194,7 @@ impl fmt::Display for Filter {
 }
 
 impl Filter {
-    pub fn execute(self, settings: &Cli) -> io::Result<(i32, i32)> {
+    pub fn execute(self, settings: &Cli) -> Result<(i32, i32), ParserError> {
         let mut passed = 0;
         let mut total = 0;
         let output = match self.has_filter() {
