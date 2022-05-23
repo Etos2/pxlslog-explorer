@@ -2,5 +2,6 @@
 /logs
 /out
 /canvas
+/palette
 /.vscode
 Cargo.lock
