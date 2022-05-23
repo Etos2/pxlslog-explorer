@@ -39,12 +39,22 @@ pxlslog-explorer.exe filter --color 5 pixels_cXX.sanit.log mypixels_cXX.log
 pxlslog-explorer.exe filter --color 5 --after 2021-04-12T23:56:04 --user (insert hash here) pixels_cXX.sanit.log mypixels2_cXX.log
 ```
 
-The render subcommand accepts a log file and produces frames in the desired format.
+The render subcommand accepts a log file and produces frames in the desired format. However it can also produce a single complete frame.
+A palette can also be provided, either from raw json found [here](https://pxls.space/info) or palette files found [here](https://pxls.space/x/palette) [.gpl, .aco, .csv, .txt (paint.NET)].
 See the [image](https://crates.io/crates/image) crate for supported image formats.
 
 ```
 // Using background as source, produce a frame every 5 minutes in the PNG format
 pxlslog-explorer.exe render -s logs/pixels_cXX.sanit.log -d out/cXX.png --bg canvas/cXX.png --step 300000
+// Or, produce a single frame
+pxlslog-explorer.exe render -s logs/pixels_cXX.sanit.log -d out/cXX.png --bg canvas/cXX.png --screenshot
+// You can also skip frames, and provide a custom palette.
+pxlslog-explorer.exe render -s logs/pixels_cXX.sanit.log -d out/cXX.png --bg canvas/cXX.png --screenshot --palette palette/p10.gpl
+```
+
+Additionally, frames can be piped to other programs via STDOUT to produce a video. This has only been tested with ffmpeg.
+```
+pxlslog-explorer.exe render -s logs/pixels_cXX.sanit.log --bg canvas/cXX.png --step 300000 | ffmpeg -f rawvideo -pixel_format rgba -video_size (width)x(height) -i pipe:0 ...
 ```
 
 ## The future
@@ -53,11 +63,7 @@ As such, the intention is to accept feedback and adapt to what users desire to s
 The scope of this program is intentially minimalistic so it can be expanded on or used as a foundation in other personal projects.
 
 ### Potential future features:
-- Render subcommand
-  - STDOUT directly to ffmpeg
-  - Generate static images
-  - Alter renders to produce Heatmaps or Virginmaps
-  - Integrating palettes
+- Alter renders to produce Heatmaps or Virginmap
 - An actual GUI
   - Probably not
 
