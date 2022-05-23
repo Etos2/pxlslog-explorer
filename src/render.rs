@@ -2,16 +2,23 @@ use std::fmt;
 use std::fs::OpenOptions;
 use std::io::{self, Write};
 
-use crate::parser::PxlsParser;
+use crate::parser::{PaletteParser, ParserError, PxlsParser};
 use crate::Cli;
 
 use chrono::NaiveDateTime;
-use clap::{ArgEnum, Args};
+use clap::{ArgEnum, ArgGroup, Args};
 use image::io::Reader as ImageReader;
 use image::{ImageBuffer, RgbaImage};
 
 #[derive(Args)]
-#[clap(about = "Render timelapses and other imagery", long_about = None)]
+#[clap(
+    about = "Render individual frames or output raw frame data to STDOUT.",
+    long_about = "Render individual frames or output raw frame data to STDOUT.
+Guaranted to produce 2 frames per render, where the first frame is the background and the last frame is the complete contents of the log.
+To output only the final result, use the \"--screenshot\" arg."
+)]
+#[clap(group = ArgGroup::new("qol").args(&["step", "skip", "screenshot"]).required(true).multiple(true))]
+#[clap(group = ArgGroup::new("qol-conflict").args(&["step", "skip"]).conflicts_with("screenshot"))]
 pub struct RenderInput {
     #[clap(short, long)]
     #[clap(value_name("PATH"))]
@@ -19,29 +26,41 @@ pub struct RenderInput {
     src: String,
     #[clap(short, long)]
     #[clap(value_name("PATH"))]
-    #[clap(help = "Filepath of output image file", display_order = 1)]
+    #[clap(help = "Filepath of output frames", display_order = 1)]
     dst: Option<String>,
     #[clap(short, long)]
     #[clap(value_name("PATH"))]
     #[clap(help = "Filepath of background image")]
     bg: Option<String>,
+    #[clap(short, long)]
+    #[clap(value_name("PATH"))]
+    #[clap(help = "Filepath of palette (.json)")]
+    palette: Option<String>,
     #[clap(long)]
     #[clap(max_values(2))]
     #[clap(min_values(2))]
-    #[clap(value_name("SIZE"))]
+    #[clap(value_name("INT"))]
     #[clap(help = "Size of canvas")]
     size: Option<Vec<u32>>,
     #[clap(long, arg_enum)]
+    #[clap(value_name("ENUM"))]
     #[clap(help = "Type of render")]
     r#type: Option<RenderType>,
     #[clap(long)]
-    #[clap(help = "Time between frames")]
+    #[clap(value_name("LONG"))]
+    #[clap(help = "Time between frames (0 is equilavent to i64::MAX)")]
     step: Option<i64>,
+    #[clap(long)]
+    #[clap(value_name("INT"))]
+    #[clap(help = "Skip n frames")]
+    skip: Option<usize>,
+    #[clap(long)]
+    #[clap(help = "Only return final frame (Alias for \"--step 0 --skip 1\")")]
+    screenshot: bool,
 }
 
 // TODO: Clean
-const PALETTE: [[u8; 4]; 33] = [
-    [0, 0, 0, 0],         // Transparent
+const PALETTE: [[u8; 4]; 32] = [
     [0, 0, 0, 255],       // Black
     [34, 34, 34, 255],    // Dark Grey
     [85, 85, 85, 255],    // Deep Grey
@@ -76,25 +95,6 @@ const PALETTE: [[u8; 4]; 33] = [
     [116, 12, 0, 255],    // Maroon
 ];
 
-// TODO: Clean
-// const PALETTE: [[u8; 4]; 15] = [
-//     [0, 0, 0, 0],
-//     [5, 22, 32, 255],
-//     [49, 105, 80, 255],
-//     [134, 192, 108, 255],
-//     [223, 248, 209, 255],
-//     [0, 0, 0, 255],
-//     [34, 34, 34, 255],
-//     [85, 85, 85, 255],
-//     [136, 136, 136, 255],
-//     [205, 205, 205, 255],
-//     [255, 255, 255, 255],
-//     [36, 181, 254, 255],
-//     [19, 92, 199, 255],
-//     [240, 37, 35, 255],
-//     [177, 18, 6, 255],
-// ];
-
 #[derive(Debug, Copy, Clone)]
 pub struct PixelAction {
     x: u32,
@@ -110,6 +110,7 @@ pub struct Render {
     background: RgbaImage,
     style: RenderType,
     step: i64,
+    skip: usize,
     palette: Vec<[u8; 4]>,
 }
 
@@ -150,16 +151,28 @@ impl RenderInput {
             },
         };
 
-        // TODO: Move to filter
-        let mut offset = (u32::MAX, u32::MAX);
-        for pixel in &pixels {
-            if pixel.x < offset.0 {
-                offset.0 = pixel.x;
+        let step = match self.step {
+            Some(step) => {
+                if step > 0 {
+                    step
+                } else {
+                    i64::MAX
+                }
             }
-            if pixel.y < offset.1 {
-                offset.1 = pixel.y;
-            }
+            None => i64::MAX,
+        };
+
+        let mut skip = self.skip.unwrap_or(0);
+        if self.screenshot {
+            skip += 1;
         }
+
+        let palette = match &self.palette {
+            Some(path) => {
+                PaletteParser::try_parse(&path).unwrap()
+            },
+            None => PALETTE.to_vec(),
+        };
 
         Ok(Render {
             src: self.src.to_owned(),
@@ -167,8 +180,9 @@ impl RenderInput {
             src_bg: self.bg.to_owned(),
             background,
             style,
-            step: self.step.unwrap_or(0),
-            palette: PALETTE.to_vec(), // TODO: Allow user input
+            step,
+            skip,
+            palette,
         })
     }
 }
@@ -180,7 +194,7 @@ impl fmt::Display for Render {
         write!(f, "\n  --src:    {}", self.src)?;
         if let Some(path) = &self.dst {
             write!(f, "\n  --dst:    {}", path)?;
-        }  else {
+        } else {
             write!(f, "\n  --dst:    STDOUT")?;
         }
         if let Some(path) = &self.src_bg {
@@ -193,36 +207,31 @@ impl fmt::Display for Render {
                 self.background.height()
             )?;
         }
+
         write!(f, "\n  --step:   {}", self.step)?;
         write!(f, "\n  --type:   {:?}", self.style)?;
-        
 
         Ok(())
     }
 }
 
 impl Render {
-    pub fn execute(self, settings: &Cli) -> io::Result<usize> {
+    pub fn execute(self, settings: &Cli) -> Result<usize, ParserError> {
+        let stdin = io::stdout();
         let pixels = Self::get_pixels(&self.src)?;
         let frames = Self::get_frame_slices(&pixels, self.step);
-        let mut current_frame = self.background;
+        let mut current_frame = self.background.clone();
 
         if settings.verbose {
             println!("Rendering {} frames", frames.len());
         }
 
-        let stdin = io::stdout();
-
-        if self.step != 0 {
-            match &self.dst {
-                Some(path) => Self::frame_to_file(&current_frame, &path, 0),
-                None => Self::frame_to_raw(&current_frame, &mut stdin.lock()),
-            }
-        }
-        for (i, frame) in frames.iter().enumerate() {
+        for (i, frame) in frames[self.skip..].iter().enumerate() {
             if !frame.is_empty() {
                 current_frame = match self.style {
-                    RenderType::Normal => Self::get_frame(&current_frame, frame, &self.palette),
+                    RenderType::Normal => {
+                        Self::get_frame(&self.background, &current_frame, frame, &self.palette)
+                    }
                     RenderType::Heat => unimplemented!(),
                     RenderType::Virgin => unimplemented!(),
                 };
@@ -251,7 +260,7 @@ impl Render {
 
     // TODO: Better error handling
     // TODO: External io
-    fn get_pixels(path: &str) -> io::Result<Vec<PixelAction>> {
+    fn get_pixels(path: &str) -> Result<Vec<PixelAction>, ParserError> {
         PxlsParser::parse(
             &mut OpenOptions::new().read(true).open(path)?,
             |s: &[&str]| -> PixelAction {
@@ -274,6 +283,7 @@ impl Render {
         let mut frames: Vec<&[PixelAction]> = vec![];
         let mut start = 0;
 
+        frames.push(&[]);
         if step != 0 {
             for (end, pair) in pixels.windows(2).enumerate() {
                 let diff = pair[1].delta / step - pair[0].delta / step;
@@ -285,6 +295,7 @@ impl Render {
                     }
                 }
             }
+
             frames.push(&pixels[start..]);
         } else {
             frames.push(&pixels);
@@ -293,10 +304,23 @@ impl Render {
         frames
     }
 
-    fn get_frame(background: &RgbaImage, pixels: &[PixelAction], palette: &[[u8; 4]]) -> RgbaImage {
-        let mut frame = background.clone();
-        for pixel in pixels {
-            frame.put_pixel(pixel.x, pixel.y, image::Rgba::from(palette[pixel.i + 1]));
+    fn get_frame(
+        background: &RgbaImage,
+        previous: &RgbaImage,
+        actions: &[PixelAction],
+        palette: &[[u8; 4]],
+    ) -> RgbaImage {
+        let mut frame = previous.clone();
+        for action in actions {
+            if let Some(pixel) = palette.get(action.i) {
+                frame.put_pixel(action.x, action.y, image::Rgba::from(*pixel));
+            } else {
+                frame.put_pixel(
+                    action.x,
+                    action.y,
+                    *background.get_pixel(action.x, action.y),
+                );
+            }
         }
         frame
     }

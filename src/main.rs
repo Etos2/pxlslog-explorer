@@ -22,6 +22,7 @@ pub struct Cli {
     #[clap(help = "Prevent files from being overwritten")]
     pub noclobber: bool,
     #[clap(long)]
+    #[clap(value_name("INT"))]
     #[clap(help = "Number of threads utilised [Defaults to all available threads]")]
     pub threads: Option<usize>,
     #[clap(subcommand)]
