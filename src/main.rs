@@ -1,7 +1,9 @@
+mod command;
 mod filter;
-mod render;
 mod parser;
+mod render;
 
+use command::PxlsInput;
 use filter::FilterInput;
 use render::RenderInput;
 
@@ -26,11 +28,11 @@ pub struct Cli {
     #[clap(help = "Number of threads utilised [Defaults to all available threads]")]
     pub threads: Option<usize>,
     #[clap(subcommand)]
-    pub command: Command,
+    pub input: Input,
 }
 
 #[derive(Subcommand)]
-pub enum Command {
+pub enum Input {
     Filter(FilterInput),
     Render(RenderInput),
 }
@@ -54,27 +56,16 @@ fn main() {
         }
     }
 
-    match &cli.command {
-        Command::Filter(filter_input) => {
-            // TODO: Graceful error handling
-            let filter = filter_input.validate().unwrap();
-            if cli.verbose {
-                println!("{}", filter);
-            }
-            let result = filter.execute(&cli).unwrap();
-            if cli.verbose {
-                println!("Returned {} of {} entries", result.0, result.1);
-            }
-        }
-        Command::Render(render_input) => {
-            let render = render_input.validate().unwrap();
-            if cli.verbose {
-                println!("{}", render);
-            }
-            let result = render.execute(&cli).unwrap();
-            if cli.verbose {
-                println!("Saved {} frames", result);
-            }
-        }
-    }
+    let command = match &cli.input {
+        Input::Filter(filter_input) => filter_input.parse(&cli),
+        Input::Render(render_input) => render_input.parse(&cli),
+    };
+
+    match command {
+        Ok(c) => match c.run(&cli) {
+            Ok(_) => eprintln!("Executed successfully!"),
+            Err(e) => eprintln!("{}", e),
+        },
+        Err(e) => eprintln!("{}", e),
+    };
 }

@@ -1,8 +1,8 @@
-use std::fmt;
 use std::fs::{self, OpenOptions};
 use std::io::{self, prelude::*};
 
-use crate::parser::{ParserError, PxlsParser};
+use crate::parser::PxlsParser;
+use crate::command::{PxlsError, PxlsCommand, PxlsInput};
 use crate::Cli;
 
 use chrono::NaiveDateTime;
@@ -90,9 +90,8 @@ pub enum Action {
     Nuke,
 }
 
-impl FilterInput {
-    // TODO: Actually verify some inputs + custom validation errors?
-    pub fn validate(&self) -> Result<Filter, std::io::Error> {
+impl PxlsInput for FilterInput {
+    fn parse(&self, _settings: &Cli) -> Result<Box<dyn PxlsCommand>, PxlsError> {
         let mut hashes = self.hash.to_owned();
         if let Some(src) = &self.hash_src {
             let input = fs::read_to_string(src)?;
@@ -127,6 +126,7 @@ impl FilterInput {
             ]),
             _ => unreachable!(),
         };
+
         if let Some(mut region) = region {
             if region[0] > region[2] {
                 region.swap(0, 2);
@@ -136,7 +136,7 @@ impl FilterInput {
             }
         }
 
-        Ok(Filter {
+        Ok(Box::new(Filter {
             src: self.src.to_owned(),
             dst,
             after: self.after,
@@ -145,56 +145,12 @@ impl FilterInput {
             region,
             hashes,
             actions: self.action.to_owned(),
-        })
+        }))
     }
 }
 
-impl fmt::Display for Filter {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        if self.has_filter() {
-            write!(f, "Performing FILTER command with following arguments:")?;
-        } else {
-            write!(f, "Performing FILTER command with NO filters (Why?):")?;
-        }
-
-        if let Some(src) = &self.src {
-            write!(f, "\n  --src:    {}", src)?;
-        } else {
-            write!(f, "\n  --src:    STDIN")?;
-        }
-        if let Some(dst) = &self.dst {
-            write!(f, "\n  --dst:    {}", dst)?;
-        } else {
-            write!(f, "\n  --dst:    STDOUT")?;
-        }
-
-        if let Some(time) = &self.after {
-            write!(f, "\n  --after:  {}", time)?;
-        }
-        if let Some(time) = &self.before {
-            write!(f, "\n  --before: {}", time)?;
-        }
-        if self.colors.len() > 0 {
-            write!(f, "\n  --color:  {:?}", &self.colors)?;
-        }
-        if let Some(region) = &self.region {
-            write!(f, "\n  --region: {:?}", region)?;
-        }
-        if self.actions.len() > 0 {
-            write!(f, "\n  --action: {:?}", &self.actions)?;
-        }
-        if self.hashes.len() > 0 {
-            write!(f, "\n  --user:   {:.32}...", self.hashes[0])?;
-            for hash in &self.hashes[1..] {
-                write!(f, "\n            {:.32}...", hash)?;
-            }
-        }
-        Ok(())
-    }
-}
-
-impl Filter {
-    pub fn execute(self, settings: &Cli) -> Result<(i32, i32), ParserError> {
+impl PxlsCommand for Filter {
+    fn run(&self, settings: &Cli) -> Result<(), PxlsError> {
         let mut passed = 0;
         let mut total = 0;
         let output = match self.has_filter() {
@@ -205,7 +161,10 @@ impl Filter {
                         &mut OpenOptions::new().read(true).open(s)?,
                         &mut buffer,
                     )?,
-                    None => PxlsParser::parse_raw(&mut io::stdin().lock(), &mut buffer)?,
+                    None => PxlsParser::parse_raw(
+                        &mut io::stdin().lock(), 
+                        &mut buffer
+                    )?,
                 };
 
                 total = tokens.len() as i32 / 6;
@@ -219,6 +178,7 @@ impl Filter {
                             .filter(|tokens| self.is_filtered(tokens))
                     })
                     .collect::<Vec<_>>();
+
                 let collected_tokens = passed_tokens
                     .par_iter()
                     .map(|tokens| tokens.join("\t"))
@@ -253,9 +213,17 @@ impl Filter {
                 print!("{}", output);
             }
         };
-        Ok((passed, total))
-    }
 
+        if settings.verbose {
+            println!("Returned {} of {} entries", passed, total);
+        }
+
+        Ok(())
+    }
+}
+
+impl Filter {
+    // TODO: Error
     fn is_filtered(&self, tokens: &[&str]) -> bool {
         let mut out = true;
 

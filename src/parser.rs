@@ -1,54 +1,13 @@
-use std::error;
 use std::ffi::OsStr;
 use std::fs::OpenOptions;
-use std::io::{self, Read};
+use std::io::Read;
 use std::path::Path;
+
+use crate::command::PxlsError;
 
 use hex::FromHex;
 use rayon::prelude::*;
 use serde_json::Value;
-
-// TODO: Line numbers for errors
-#[non_exhaustive]
-#[derive(Debug)]
-pub enum ParserError {
-    Io(io::Error),
-    Eof(),
-    BadToken(String),
-    BadByte(u8),
-    Unsupported(),
-}
-
-impl error::Error for ParserError {}
-
-impl std::fmt::Display for ParserError {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        match self {
-            ParserError::Io(err) => write!(f, "{}", err),
-            ParserError::Eof() => write!(f, "unexpected eof"),
-            ParserError::BadToken(c) => write!(f, "invalid token ({})", c),
-            ParserError::BadByte(b) => write!(f, "invalid byte ({})", b),
-            ParserError::Unsupported() => write!(f, "unsupported format"),
-        }
-    }
-}
-
-impl From<std::io::Error> for ParserError {
-    fn from(value: std::io::Error) -> Self {
-        Self::Io(value)
-    }
-}
-
-impl From<serde_json::Error> for ParserError {
-    fn from(value: serde_json::Error) -> Self {
-        Self::BadToken(value.to_string())
-    }
-}
-impl From<hex::FromHexError> for ParserError {
-    fn from(value: hex::FromHexError) -> Self {
-        Self::BadToken(value.to_string())
-    }
-}
 
 pub struct PxlsParser {}
 
@@ -57,7 +16,7 @@ impl PxlsParser {
     pub fn parse_raw<'a, R>(
         input: &mut R,
         buffer: &'a mut String,
-    ) -> Result<Vec<&'a str>, ParserError>
+    ) -> Result<Vec<&'a str>, PxlsError>
     where
         R: Read,
     {
@@ -70,7 +29,7 @@ impl PxlsParser {
     }
 
     // TODO: Error detection
-    pub fn parse<R, T>(input: &mut R, parser: fn(&[&str]) -> T) -> Result<Vec<T>, ParserError>
+    pub fn parse<R, T>(input: &mut R, parser: fn(&[&str]) -> T) -> Result<Vec<T>, PxlsError>
     where
         R: Read,
         T: Send,
@@ -90,7 +49,7 @@ impl PxlsParser {
 pub struct PaletteParser {}
 
 impl PaletteParser {
-    pub fn try_parse(path: &str) -> Result<Vec<[u8; 4]>, ParserError> {
+    pub fn try_parse(path: &str) -> Result<Vec<[u8; 4]>, PxlsError> {
         let mut file = OpenOptions::new().read(true).open(path)?;
 
         match Path::new(path).extension().and_then(OsStr::to_str) {
@@ -99,12 +58,12 @@ impl PaletteParser {
             Some("csv") => Ok(Self::parse_csv(&mut file)?),
             Some("gpl") => Ok(Self::parse_gpl(&mut file)?),
             Some("txt") => Ok(Self::parse_txt(&mut file)?),
-            _ => Err(ParserError::Unsupported()),
+            _ => Err(PxlsError::Unsupported()),
         }
     }
 
     // TODO: Json error
-    pub fn parse_json<R>(input: &mut R) -> Result<Vec<[u8; 4]>, ParserError>
+    pub fn parse_json<R>(input: &mut R) -> Result<Vec<[u8; 4]>, PxlsError>
     where
         R: Read,
     {
@@ -114,17 +73,17 @@ impl PaletteParser {
         let v: Value = serde_json::from_str(&buffer)?;
         v["palette"]
             .as_array()
-            .ok_or(ParserError::BadToken(String::from(
+            .ok_or(PxlsError::BadToken(String::from(
                 "cannot find \"palette\"",
             )))?
             .iter()
             .map(|v| {
                 let rgb = <[u8; 3]>::from_hex(
-                    v.as_object().ok_or(ParserError::BadToken(String::from(
+                    v.as_object().ok_or(PxlsError::BadToken(String::from(
                         "invalid \"palette entry\"",
                     )))?["value"]
                         .as_str()
-                        .ok_or(ParserError::BadToken(String::from("invalid \"value\"")))?,
+                        .ok_or(PxlsError::BadToken(String::from("invalid \"value\"")))?,
                 )?;
                 Ok([rgb[0], rgb[1], rgb[2], 255])
             })
@@ -132,7 +91,7 @@ impl PaletteParser {
     }
 
     // Todo: Better parsing
-    pub fn parse_csv<R>(input: &mut R) -> Result<Vec<[u8; 4]>, ParserError>
+    pub fn parse_csv<R>(input: &mut R) -> Result<Vec<[u8; 4]>, PxlsError>
     where
         R: Read,
     {
@@ -154,7 +113,7 @@ impl PaletteParser {
     }
 
     // Todo: Better parsing
-    pub fn parse_txt<R>(input: &mut R) -> Result<Vec<[u8; 4]>, ParserError>
+    pub fn parse_txt<R>(input: &mut R) -> Result<Vec<[u8; 4]>, PxlsError>
     where
         R: Read,
     {
@@ -172,7 +131,7 @@ impl PaletteParser {
     }
 
     // Todo: Better parsing
-    pub fn parse_gpl<R>(input: &mut R) -> Result<Vec<[u8; 4]>, ParserError>
+    pub fn parse_gpl<R>(input: &mut R) -> Result<Vec<[u8; 4]>, PxlsError>
     where
         R: Read,
     {
@@ -196,7 +155,7 @@ impl PaletteParser {
     }
 
     // Todo: Version 2 + Additional colour spaces
-    pub fn parse_aco<R>(input: &mut R) -> Result<Vec<[u8; 4]>, ParserError>
+    pub fn parse_aco<R>(input: &mut R) -> Result<Vec<[u8; 4]>, PxlsError>
     where
         R: Read,
     {
@@ -211,18 +170,18 @@ impl PaletteParser {
             .collect();
         let mut data = buffer.iter();
 
-        let version = data.next().ok_or(ParserError::Eof())?;
-        let len = *data.next().ok_or(ParserError::Eof())?;
+        let version = data.next().ok_or(PxlsError::Eof())?;
+        let len = *data.next().ok_or(PxlsError::Eof())?;
         match version {
             1 => {
                 for _ in 1..=len {
-                    let color_space = data.next().ok_or(ParserError::Eof())?;
+                    let color_space = data.next().ok_or(PxlsError::Eof())?;
                     match color_space {
                         0 => {
-                            let r = data.next().ok_or(ParserError::Eof())?;
-                            let g = data.next().ok_or(ParserError::Eof())?;
-                            let b = data.next().ok_or(ParserError::Eof())?;
-                            let _ = data.next().ok_or(ParserError::Eof())?; // Skip
+                            let r = data.next().ok_or(PxlsError::Eof())?;
+                            let g = data.next().ok_or(PxlsError::Eof())?;
+                            let b = data.next().ok_or(PxlsError::Eof())?;
+                            let _ = data.next().ok_or(PxlsError::Eof())?; // Skip
 
                             // Safe unwrap
                             rgba.push([
@@ -232,11 +191,11 @@ impl PaletteParser {
                                 255,
                             ]);
                         }
-                        _ => return Err(ParserError::Unsupported()),
+                        _ => return Err(PxlsError::Unsupported()),
                     }
                 }
             }
-            _ => return Err(ParserError::Unsupported()),
+            _ => return Err(PxlsError::Unsupported()),
         }
         Ok(rgba)
     }
