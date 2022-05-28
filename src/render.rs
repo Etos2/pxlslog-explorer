@@ -1,8 +1,8 @@
-use std::fmt;
 use std::fs::OpenOptions;
 use std::io::{self, Write};
 
-use crate::parser::{PaletteParser, ParserError, PxlsParser};
+use crate::parser::{PaletteParser, PxlsParser};
+use crate::command::{PxlsError, PxlsCommand, PxlsInput};
 use crate::Cli;
 
 use chrono::NaiveDateTime;
@@ -15,7 +15,7 @@ use image::{ImageBuffer, RgbaImage};
     about = "Render individual frames or output raw frame data to STDOUT.",
     long_about = "Render individual frames or output raw frame data to STDOUT.
 Guaranted to produce 2 frames per render, where the first frame is the background and the last frame is the complete contents of the log.
-To output only the final result, use the \"--screenshot\" arg."
+To output only the final result, use the \"--screenshot\" arg or manually skip the first frame \"--skip\"."
 )]
 #[clap(group = ArgGroup::new("qol").args(&["step", "skip", "screenshot"]).required(true).multiple(true))]
 #[clap(group = ArgGroup::new("qol-conflict").args(&["step", "skip"]).conflicts_with("screenshot"))]
@@ -34,7 +34,7 @@ pub struct RenderInput {
     bg: Option<String>,
     #[clap(short, long)]
     #[clap(value_name("PATH"))]
-    #[clap(help = "Filepath of palette (.json)")]
+    #[clap(help = "Filepath of palette [.json, .txt, .gpl, .aco, .csv]")]
     palette: Option<String>,
     #[clap(long)]
     #[clap(max_values(2))]
@@ -55,6 +55,7 @@ pub struct RenderInput {
     #[clap(help = "Skip n frames")]
     skip: Option<usize>,
     #[clap(long)]
+    #[clap(value_name("INT"))]
     #[clap(help = "Only return final frame (Alias for \"--step 0 --skip 1\")")]
     screenshot: bool,
 }
@@ -106,7 +107,6 @@ pub struct PixelAction {
 pub struct Render {
     src: String,
     dst: Option<String>,
-    src_bg: Option<String>,
     background: RgbaImage,
     style: RenderType,
     step: i64,
@@ -123,7 +123,11 @@ enum RenderType {
 
 impl RenderInput {
     // TODO: Custom errors
-    pub fn validate(&self) -> Result<Render, std::io::Error> {
+    
+}
+
+impl PxlsInput for RenderInput {
+    fn parse(&self, _settings: &Cli) -> Result<Box<dyn PxlsCommand>, PxlsError> {
         let style = match self.r#type {
             Some(t) => t,
             None => RenderType::Normal,
@@ -168,55 +172,24 @@ impl RenderInput {
         }
 
         let palette = match &self.palette {
-            Some(path) => {
-                PaletteParser::try_parse(&path).unwrap()
-            },
+            Some(path) => PaletteParser::try_parse(&path).unwrap(),
             None => PALETTE.to_vec(),
         };
 
-        Ok(Render {
+        Ok(Box::new(Render {
             src: self.src.to_owned(),
             dst: self.dst.clone(),
-            src_bg: self.bg.to_owned(),
             background,
             style,
             step,
             skip,
             palette,
-        })
+        }))
     }
 }
 
-impl fmt::Display for Render {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "Performing RENDER command with following arguments:")?;
-
-        write!(f, "\n  --src:    {}", self.src)?;
-        if let Some(path) = &self.dst {
-            write!(f, "\n  --dst:    {}", path)?;
-        } else {
-            write!(f, "\n  --dst:    STDOUT")?;
-        }
-        if let Some(path) = &self.src_bg {
-            write!(f, "\n  --bg:     {}", path)?;
-        } else {
-            write!(
-                f,
-                "\n  --size:   {} x {}",
-                self.background.width(),
-                self.background.height()
-            )?;
-        }
-
-        write!(f, "\n  --step:   {}", self.step)?;
-        write!(f, "\n  --type:   {:?}", self.style)?;
-
-        Ok(())
-    }
-}
-
-impl Render {
-    pub fn execute(self, settings: &Cli) -> Result<usize, ParserError> {
+impl PxlsCommand for Render {
+    fn run(&self, settings: &Cli) -> Result<(), PxlsError> {
         let stdin = io::stdout();
         let pixels = Self::get_pixels(&self.src)?;
         let frames = Self::get_frame_slices(&pixels, self.step);
@@ -243,9 +216,15 @@ impl Render {
             }
         }
 
-        Ok(frames.len())
-    }
+        if settings.verbose {
+            println!("Rendering {} frames", frames.len());
+        }
 
+        Ok(())
+    }
+}
+
+impl Render {
     // TODO: Error handling
     fn frame_to_file(frame: &RgbaImage, path: &str, i: usize) {
         let dst = path.rsplit_once('.').unwrap();
@@ -260,7 +239,7 @@ impl Render {
 
     // TODO: Better error handling
     // TODO: External io
-    fn get_pixels(path: &str) -> Result<Vec<PixelAction>, ParserError> {
+    fn get_pixels(path: &str) -> Result<Vec<PixelAction>, PxlsError> {
         PxlsParser::parse(
             &mut OpenOptions::new().read(true).open(path)?,
             |s: &[&str]| -> PixelAction {
