@@ -3,25 +3,22 @@ use std::io;
 
 use crate::Cli;
 
-pub trait PxlsInput
-{
-    fn parse(&self, settings: &Cli) -> Result<Box<dyn PxlsCommand>, PxlsError>;
+pub trait PxlsInput {
+    fn parse(&self, settings: &Cli) -> PxlsResult<Box<dyn PxlsCommand>>;
+}
+pub trait PxlsCommand {
+    fn run(&self, settings: &Cli) -> PxlsResult<()>;
 }
 
-pub trait PxlsCommand
-{
-    fn run(&self, settings: &Cli) -> Result<(), PxlsError>;
-}
+pub type PxlsResult<T> = Result<T, PxlsError>;
 
-// TODO: Line numbers for errors
 #[non_exhaustive]
 #[derive(Debug)]
 pub enum PxlsError {
     Io(io::Error),
+    Unsupported(),
     Eof(),
     BadToken(String),
-    BadByte(u8),
-    Unsupported(),
 }
 
 impl error::Error for PxlsError {}
@@ -30,10 +27,9 @@ impl std::fmt::Display for PxlsError {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         match self {
             PxlsError::Io(err) => write!(f, "{}", err),
+            PxlsError::Unsupported() => write!(f, "unsupported file or file format"),
             PxlsError::Eof() => write!(f, "unexpected eof"),
             PxlsError::BadToken(s) => write!(f, "invalid token ({})", s),
-            PxlsError::BadByte(b) => write!(f, "invalid byte ({})", b),
-            PxlsError::Unsupported() => write!(f, "unsupported format"),
         }
     }
 }
@@ -49,8 +45,26 @@ impl From<serde_json::Error> for PxlsError {
         Self::BadToken(value.to_string())
     }
 }
+
 impl From<hex::FromHexError> for PxlsError {
     fn from(value: hex::FromHexError) -> Self {
+        Self::BadToken(value.to_string())
+    }
+}
+
+impl From<image::ImageError> for PxlsError {
+    fn from(_: image::ImageError) -> Self {
+        Self::Unsupported()
+    }
+}
+
+impl From<chrono::ParseError> for PxlsError {
+    fn from(value: chrono::ParseError) -> Self {
+        Self::BadToken(value.to_string())
+    }
+}
+impl From<std::num::ParseIntError> for PxlsError {
+    fn from(value: std::num::ParseIntError) -> Self {
         Self::BadToken(value.to_string())
     }
 }

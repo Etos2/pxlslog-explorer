@@ -1,8 +1,10 @@
+use std::ffi::OsStr;
 use std::fs::OpenOptions;
 use std::io::{self, Write};
+use std::path::Path;
 
+use crate::command::{PxlsCommand, PxlsError, PxlsInput, PxlsResult};
 use crate::parser::{PaletteParser, PxlsParser};
-use crate::command::{PxlsError, PxlsCommand, PxlsInput};
 use crate::Cli;
 
 use chrono::NaiveDateTime;
@@ -26,7 +28,10 @@ pub struct RenderInput {
     src: String,
     #[clap(short, long)]
     #[clap(value_name("PATH"))]
-    #[clap(help = "Filepath of output frames", display_order = 1)]
+    #[clap(
+        help = "Filepath of output frames [Defaults to STDOUT]",
+        display_order = 1
+    )]
     dst: Option<String>,
     #[clap(short, long)]
     #[clap(value_name("PATH"))]
@@ -55,7 +60,6 @@ pub struct RenderInput {
     #[clap(help = "Skip n frames")]
     skip: Option<usize>,
     #[clap(long)]
-    #[clap(value_name("INT"))]
     #[clap(help = "Only return final frame (Alias for \"--step 0 --skip 1\")")]
     screenshot: bool,
 }
@@ -121,21 +125,17 @@ enum RenderType {
     Virgin,
 }
 
-impl RenderInput {
-    // TODO: Custom errors
-    
-}
-
 impl PxlsInput for RenderInput {
-    fn parse(&self, _settings: &Cli) -> Result<Box<dyn PxlsCommand>, PxlsError> {
+    fn parse(&self, _settings: &Cli) -> PxlsResult<Box<dyn PxlsCommand>> {
         let style = match self.r#type {
             Some(t) => t,
             None => RenderType::Normal,
         };
 
-        let pixels = Render::get_pixels(&self.src).unwrap();
+        let pixels = Render::get_pixels(&self.src)?;
         let background = match &self.bg {
-            Some(path) => ImageReader::open(path)?.decode().unwrap().to_rgba8(),
+            Some(path) => ImageReader::open(path)?.decode()?.to_rgba8(),
+            // TODO: Improve functionality
             None => match &self.size {
                 Some(size) => {
                     ImageBuffer::from_pixel(size[0], size[1], image::Rgba::from([0, 0, 0, 0]))
@@ -168,11 +168,11 @@ impl PxlsInput for RenderInput {
 
         let mut skip = self.skip.unwrap_or(0);
         if self.screenshot {
-            skip += 1;
+            skip = 1;
         }
 
         let palette = match &self.palette {
-            Some(path) => PaletteParser::try_parse(&path).unwrap(),
+            Some(path) => PaletteParser::try_parse(&path)?,
             None => PALETTE.to_vec(),
         };
 
@@ -189,7 +189,7 @@ impl PxlsInput for RenderInput {
 }
 
 impl PxlsCommand for Render {
-    fn run(&self, settings: &Cli) -> Result<(), PxlsError> {
+    fn run(&self, settings: &Cli) -> PxlsResult<()> {
         let stdin = io::stdout();
         let pixels = Self::get_pixels(&self.src)?;
         let frames = Self::get_frame_slices(&pixels, self.step);
@@ -211,8 +211,8 @@ impl PxlsCommand for Render {
             }
 
             match &self.dst {
-                Some(path) => Self::frame_to_file(&current_frame, &path, i),
-                None => Self::frame_to_raw(&current_frame, &mut stdin.lock()),
+                Some(path) => Self::frame_to_file(&current_frame, &path, i)?,
+                None => Self::frame_to_raw(&current_frame, &mut stdin.lock())?,
             }
         }
 
@@ -226,34 +226,41 @@ impl PxlsCommand for Render {
 
 impl Render {
     // TODO: Error handling
-    fn frame_to_file(frame: &RgbaImage, path: &str, i: usize) {
-        let dst = path.rsplit_once('.').unwrap();
-        frame.save(format!("{}_{}.{}", dst.0, i, dst.1)).unwrap();
+    fn frame_to_file(frame: &RgbaImage, path: &str, i: usize) -> PxlsResult<()> {
+        let ext = Path::new(path)
+            .extension()
+            .and_then(OsStr::to_str)
+            .ok_or(PxlsError::Unsupported())?;
+        let mut dst = path.to_owned();
+        dst.truncate(dst.len() - ext.len() - 1);
+        
+        frame.save(format!("{}_{}.{}", dst, i, ext))?;
+        Ok(())
     }
 
-    fn frame_to_raw<R: Write>(frame: &RgbaImage, out: &mut R) {
+    fn frame_to_raw<R: Write>(frame: &RgbaImage, out: &mut R) -> PxlsResult<()> {
         let buf = &frame.as_raw()[..];
-        out.write_all(buf).unwrap();
-        out.flush().unwrap();
+        out.write_all(buf)?;
+        out.flush()?;
+        Ok(())
     }
 
     // TODO: Better error handling
     // TODO: External io
-    fn get_pixels(path: &str) -> Result<Vec<PixelAction>, PxlsError> {
+    fn get_pixels(path: &str) -> PxlsResult<Vec<PixelAction>> {
         PxlsParser::parse(
             &mut OpenOptions::new().read(true).open(path)?,
-            |s: &[&str]| -> PixelAction {
-                PixelAction {
-                    x: s[2].parse().unwrap(),
-                    y: s[3].parse().unwrap(),
-                    i: match s[4].parse::<usize>().unwrap() {
+            |s: &[&str]| -> PxlsResult<PixelAction> {
+                Ok(PixelAction {
+                    x: s[2].parse()?,
+                    y: s[3].parse()?,
+                    i: match s[4].parse::<usize>()? {
                         255 => 0,
                         i => i,
                     },
-                    delta: NaiveDateTime::parse_from_str(s[0], "%Y-%m-%d %H:%M:%S,%3f")
-                        .unwrap()
+                    delta: NaiveDateTime::parse_from_str(s[0], "%Y-%m-%d %H:%M:%S,%3f")?
                         .timestamp_millis(),
-                }
+                })
             },
         )
     }

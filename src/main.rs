@@ -63,9 +63,13 @@ fn main() {
 
     match command {
         Ok(c) => match c.run(&cli) {
-            Ok(_) => eprintln!("Executed successfully!"),
-            Err(e) => eprintln!("{}", e),
+            Ok(_) => {
+                if cli.verbose {
+                    println!("Executed successfully!")
+                }
+            },
+            Err(e) => eprintln!("Failed: {}", e),
         },
-        Err(e) => eprintln!("{}", e),
+        Err(e) => eprintln!("Invalid configuration: {}", e),
     };
 }

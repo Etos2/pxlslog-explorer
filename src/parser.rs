@@ -3,7 +3,7 @@ use std::fs::OpenOptions;
 use std::io::Read;
 use std::path::Path;
 
-use crate::command::PxlsError;
+use crate::command::{PxlsError, PxlsResult};
 
 use hex::FromHex;
 use rayon::prelude::*;
@@ -12,11 +12,8 @@ use serde_json::Value;
 pub struct PxlsParser {}
 
 impl PxlsParser {
-    // TODO: Error detection
-    pub fn parse_raw<'a, R>(
-        input: &mut R,
-        buffer: &'a mut String,
-    ) -> Result<Vec<&'a str>, PxlsError>
+    // TODO: Error detection (tokens per line, etc)
+    pub fn parse_raw<'a, R>(input: &mut R, buffer: &'a mut String) -> PxlsResult<Vec<&'a str>>
     where
         R: Read,
     {
@@ -28,8 +25,8 @@ impl PxlsParser {
             .collect())
     }
 
-    // TODO: Error detection
-    pub fn parse<R, T>(input: &mut R, parser: fn(&[&str]) -> T) -> Result<Vec<T>, PxlsError>
+    // TODO: Error detection (tokens per line, etc)
+    pub fn parse<R, T>(input: &mut R, parser: fn(&[&str]) -> PxlsResult<T>) -> PxlsResult<Vec<T>>
     where
         R: Read,
         T: Send,
@@ -42,14 +39,17 @@ impl PxlsParser {
             .par_split_terminator(|c| c == '\n' || c == '\r' || c == '\t')
             .filter(|t| !t.is_empty())
             .collect();
-        Ok(temp.par_chunks_exact(6).map(|s| parser(s)).collect())
+
+        temp.par_chunks_exact(6)
+            .map(|s| parser(s))
+            .collect::<PxlsResult<Vec<T>>>()
     }
 }
 
 pub struct PaletteParser {}
 
 impl PaletteParser {
-    pub fn try_parse(path: &str) -> Result<Vec<[u8; 4]>, PxlsError> {
+    pub fn try_parse(path: &str) -> PxlsResult<Vec<[u8; 4]>> {
         let mut file = OpenOptions::new().read(true).open(path)?;
 
         match Path::new(path).extension().and_then(OsStr::to_str) {
@@ -62,8 +62,8 @@ impl PaletteParser {
         }
     }
 
-    // TODO: Json error
-    pub fn parse_json<R>(input: &mut R) -> Result<Vec<[u8; 4]>, PxlsError>
+    // TODO: Improve (?)
+    pub fn parse_json<R>(input: &mut R) -> PxlsResult<Vec<[u8; 4]>>
     where
         R: Read,
     {
@@ -73,9 +73,7 @@ impl PaletteParser {
         let v: Value = serde_json::from_str(&buffer)?;
         v["palette"]
             .as_array()
-            .ok_or(PxlsError::BadToken(String::from(
-                "cannot find \"palette\"",
-            )))?
+            .ok_or(PxlsError::BadToken(String::from("cannot find \"palette\"")))?
             .iter()
             .map(|v| {
                 let rgb = <[u8; 3]>::from_hex(
@@ -87,11 +85,11 @@ impl PaletteParser {
                 )?;
                 Ok([rgb[0], rgb[1], rgb[2], 255])
             })
-            .collect::<Result<Vec<[u8; 4]>, _>>()
+            .collect::<PxlsResult<Vec<[u8; 4]>>>()
     }
 
-    // Todo: Better parsing
-    pub fn parse_csv<R>(input: &mut R) -> Result<Vec<[u8; 4]>, PxlsError>
+    // Todo: Better parsing(?)
+    pub fn parse_csv<R>(input: &mut R) -> PxlsResult<Vec<[u8; 4]>>
     where
         R: Read,
     {
@@ -105,73 +103,95 @@ impl PaletteParser {
                 let rgb = line
                     .split_terminator(&[','][..])
                     .skip(2)
-                    .map(|s| s.parse::<u8>().unwrap())
-                    .collect::<Vec<u8>>();
+                    .map(|s| Ok(s.parse::<u8>()?))
+                    .collect::<PxlsResult<Vec<u8>>>()?;
                 Ok([rgb[0], rgb[1], rgb[2], 255])
             })
-            .collect::<Result<Vec<[u8; 4]>, _>>()
+            .collect::<PxlsResult<Vec<[u8; 4]>>>()
     }
 
     // Todo: Better parsing
-    pub fn parse_txt<R>(input: &mut R) -> Result<Vec<[u8; 4]>, PxlsError>
-    where
-        R: Read,
-    {
-        let mut buffer = String::new();
-        input.read_to_string(&mut buffer)?;
-
-        buffer
-            .split_terminator(&['\n'][..])
-            .skip(1)
-            .map(|line| {
-                let rgba = <[u8; 4]>::from_hex(line.split_terminator(&[' '][..]).next().unwrap())?;
-                Ok([rgba[1], rgba[2], rgba[3], rgba[0]])
-            })
-            .collect::<Result<Vec<[u8; 4]>, _>>()
-    }
-
-    // Todo: Better parsing
-    pub fn parse_gpl<R>(input: &mut R) -> Result<Vec<[u8; 4]>, PxlsError>
-    where
-        R: Read,
-    {
-        let mut buffer = String::new();
-        input.read_to_string(&mut buffer)?;
-
-        buffer
-            .rsplit_once(&['#'][..])
-            .unwrap()
-            .1
-            .split_terminator(&['\n'][..])
-            .filter(|s| !s.is_empty())
-            .map(|line| {
-                let rgb = line
-                    .split_terminator(&[' '][..])
-                    .filter_map(|s| s.parse::<u8>().ok())
-                    .collect::<Vec<u8>>();
-                Ok([rgb[0], rgb[1], rgb[2], 255])
-            })
-            .collect::<Result<Vec<[u8; 4]>, _>>()
-    }
-
-    // Todo: Version 2 + Additional colour spaces
-    pub fn parse_aco<R>(input: &mut R) -> Result<Vec<[u8; 4]>, PxlsError>
+    pub fn parse_txt<R>(input: &mut R) -> PxlsResult<Vec<[u8; 4]>>
     where
         R: Read,
     {
         let mut rgba = vec![];
+        let mut buffer = String::new();
+        input.read_to_string(&mut buffer)?;
+        let data = buffer.lines();
+
+        let mut temp = String::with_capacity(8);
+        for line in data {
+            for c in line.chars() {
+                if c == ';' || c == ' ' || c == '\t' {
+                    break;
+                } else {
+                    temp.push(c);
+                }
+            }
+
+            if !temp.is_empty() {
+                let vals = <[u8; 4]>::from_hex(&temp)?;
+                rgba.push([vals[1], vals[2], vals[3], vals[0]]);
+                temp.clear();
+            }
+        }
+
+        Ok(rgba)
+    }
+
+    pub fn parse_gpl<R>(input: &mut R) -> PxlsResult<Vec<[u8; 4]>>
+    where
+        R: Read,
+    {
+        let mut rgba = vec![];
+        let mut buffer = String::new();
+        input.read_to_string(&mut buffer)?;
+        let mut data = buffer.lines();
+
+        // Header
+        let magic = data.next().ok_or(PxlsError::Eof())?;
+        if magic != "GIMP Palette" {
+            return Err(PxlsError::BadToken(magic.to_string()));
+        }
+
+        // TODO: Better comments handling
+        while let Some(line) = data.next() {
+            if line == "#" {
+                break;
+            }
+        }
+
+        // Data
+        while let Some(line) = data.next() {
+            let mut values = line.split_whitespace();
+            let r = values.next().ok_or(PxlsError::Eof())?;
+            let g = values.next().ok_or(PxlsError::Eof())?;
+            let b = values.next().ok_or(PxlsError::Eof())?;
+            // Ignore name, etc...
+
+            rgba.push([r.parse::<u8>()?, g.parse::<u8>()?, b.parse::<u8>()?, 255]);
+        }
+
+        Ok(rgba)
+    }
+
+    // Todo: Version 2 + Additional colour spaces
+    pub fn parse_aco<R>(input: &mut R) -> PxlsResult<Vec<[u8; 4]>>
+    where
+        R: Read,
+    {
         let mut buffer = vec![];
         input.read_to_end(&mut buffer)?;
 
-        let buffer: Vec<u16> = buffer
+        let mut data = buffer
             .chunks_exact(2)
             .into_iter()
-            .map(|a| u16::from_be_bytes([a[0], a[1]]))
-            .collect();
-        let mut data = buffer.iter();
+            .map(|a| u16::from_be_bytes([a[0], a[1]]));
 
         let version = data.next().ok_or(PxlsError::Eof())?;
-        let len = *data.next().ok_or(PxlsError::Eof())?;
+        let len = data.next().ok_or(PxlsError::Eof())? as usize;
+        let mut rgba = Vec::with_capacity(len);
         match version {
             1 => {
                 for _ in 1..=len {
