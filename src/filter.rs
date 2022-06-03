@@ -1,8 +1,8 @@
 use std::fs::{self, OpenOptions};
 use std::io::{self, prelude::*};
 
+use crate::command::{PxlsCommand, PxlsInput, PxlsResult};
 use crate::parser::PxlsParser;
-use crate::command::{PxlsError, PxlsCommand, PxlsInput};
 use crate::Cli;
 
 use chrono::NaiveDateTime;
@@ -10,6 +10,7 @@ use clap::{ArgEnum, ArgGroup, Args};
 use rayon::prelude::*;
 use sha2::{Digest, Sha256};
 
+// TODO: Custom handling of specific types (e.g. region)
 #[derive(Args)]
 #[clap(about = "Filter logs and outputs to new file", long_about = None)]
 #[clap(group(ArgGroup::new("hashes").args(&["hash", "hash-src"])))]
@@ -91,7 +92,7 @@ pub enum Action {
 }
 
 impl PxlsInput for FilterInput {
-    fn parse(&self, _settings: &Cli) -> Result<Box<dyn PxlsCommand>, PxlsError> {
+    fn parse(&self, settings: &Cli) -> PxlsResult<Box<dyn PxlsCommand>> {
         let mut hashes = self.hash.to_owned();
         if let Some(src) = &self.hash_src {
             let input = fs::read_to_string(src)?;
@@ -99,10 +100,12 @@ impl PxlsInput for FilterInput {
                 .split_whitespace()
                 .filter(|&x| !x.is_empty())
                 .collect();
-            // TODO: Warn when hash ignored
-            for line in lines {
+
+            for (i, line) in lines.iter().enumerate() {
                 if line.len() == 512 {
                     hashes.push(line.to_string());
+                } else if settings.verbose {
+                    eprintln!("Invalid hash at line {}! Ignoring...", i);
                 }
             }
         }
@@ -150,7 +153,7 @@ impl PxlsInput for FilterInput {
 }
 
 impl PxlsCommand for Filter {
-    fn run(&self, settings: &Cli) -> Result<(), PxlsError> {
+    fn run(&self, settings: &Cli) -> PxlsResult<()> {
         let mut passed = 0;
         let mut total = 0;
         let output = match self.has_filter() {
@@ -161,10 +164,7 @@ impl PxlsCommand for Filter {
                         &mut OpenOptions::new().read(true).open(s)?,
                         &mut buffer,
                     )?,
-                    None => PxlsParser::parse_raw(
-                        &mut io::stdin().lock(), 
-                        &mut buffer
-                    )?,
+                    None => PxlsParser::parse_raw(&mut io::stdin().lock(), &mut buffer)?,
                 };
 
                 total = tokens.len() as i32 / 6;
@@ -175,9 +175,13 @@ impl PxlsCommand for Filter {
                     .flat_map(|chunk| {
                         chunk
                             .par_chunks(6)
-                            .filter(|tokens| self.is_filtered(tokens))
+                            .filter_map(|tokens| match self.is_filtered(tokens) {
+                                Ok(true) => Some(Ok(tokens)),
+                                Ok(false) => None,
+                                Err(e) => Some(Err(e)),
+                            })
                     })
-                    .collect::<Vec<_>>();
+                    .collect::<PxlsResult<Vec<_>>>()?;
 
                 let collected_tokens = passed_tokens
                     .par_iter()
@@ -188,6 +192,7 @@ impl PxlsCommand for Filter {
 
                 collected_tokens.join("\n")
             }
+
             // No filter, thus simplified output
             // TODO: Determine if program should exit when no filters specified, because this is a glorified 'cp'/'echo' function
             false => match &self.src {
@@ -199,6 +204,7 @@ impl PxlsCommand for Filter {
                 }
             },
         };
+        
         match &self.dst {
             Some(path) => {
                 OpenOptions::new()
@@ -223,27 +229,25 @@ impl PxlsCommand for Filter {
 }
 
 impl Filter {
-    // TODO: Error
-    fn is_filtered(&self, tokens: &[&str]) -> bool {
+    // TODO: Improve how tokens are inputted
+    fn is_filtered(&self, tokens: &[&str]) -> PxlsResult<bool> {
         let mut out = true;
 
         if let Some(time) = self.after {
-            out &=
-                time <= NaiveDateTime::parse_from_str(tokens[0], "%Y-%m-%d %H:%M:%S,%3f").unwrap();
+            out &= time <= NaiveDateTime::parse_from_str(tokens[0], "%Y-%m-%d %H:%M:%S,%3f")?;
         }
         if let Some(time) = self.before {
-            out &=
-                time >= NaiveDateTime::parse_from_str(tokens[0], "%Y-%m-%d %H:%M:%S,%3f").unwrap();
+            out &= time >= NaiveDateTime::parse_from_str(tokens[0], "%Y-%m-%d %H:%M:%S,%3f")?;
         }
         if let Some(region) = self.region {
-            let x = tokens[2].parse::<i32>().unwrap();
-            let y = tokens[3].parse::<i32>().unwrap();
+            let x = tokens[2].parse::<i32>()?;
+            let y = tokens[3].parse::<i32>()?;
             out &= x >= region[0] && y >= region[1] && x <= region[2] && y <= region[3];
         }
         if self.colors.len() > 0 {
             let mut temp = false;
             for color in &self.colors {
-                temp |= tokens[4].parse::<i32>().unwrap() == *color;
+                temp |= tokens[4].parse::<i32>()? == *color;
             }
             out &= temp;
         }
@@ -280,7 +284,7 @@ impl Filter {
             }
             out &= temp;
         }
-        out
+        Ok(out)
     }
 
     fn has_filter(&self) -> bool {
