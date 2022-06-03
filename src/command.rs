@@ -12,6 +12,7 @@ pub trait PxlsCommand {
 
 pub type PxlsResult<T> = Result<T, PxlsError>;
 
+// TODO: Expand (Specific errors for Parsing, Rendering, Filtering)
 #[non_exhaustive]
 #[derive(Debug)]
 pub enum PxlsError {

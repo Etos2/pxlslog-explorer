@@ -12,7 +12,6 @@ use serde_json::Value;
 pub struct PxlsParser {}
 
 impl PxlsParser {
-    // TODO: Error detection (tokens per line, etc)
     pub fn parse_raw<'a, R>(input: &mut R, buffer: &'a mut String) -> PxlsResult<Vec<&'a str>>
     where
         R: Read,
@@ -25,7 +24,6 @@ impl PxlsParser {
             .collect())
     }
 
-    // TODO: Error detection (tokens per line, etc)
     pub fn parse<R, T>(input: &mut R, parser: fn(&[&str]) -> PxlsResult<T>) -> PxlsResult<Vec<T>>
     where
         R: Read,
@@ -34,11 +32,11 @@ impl PxlsParser {
         let mut buffer = String::new();
         input.read_to_string(&mut buffer)?;
 
-        let temp: Vec<&str> = buffer
+        let temp = buffer
             .as_parallel_string()
             .par_split_terminator(|c| c == '\n' || c == '\r' || c == '\t')
             .filter(|t| !t.is_empty())
-            .collect();
+            .collect::<Vec<_>>();
 
         temp.par_chunks_exact(6)
             .map(|s| parser(s))
