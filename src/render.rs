@@ -10,7 +10,7 @@ use crate::Cli;
 use chrono::NaiveDateTime;
 use clap::{ArgEnum, ArgGroup, Args};
 use image::io::Reader as ImageReader;
-use image::{ImageBuffer, RgbaImage};
+use image::{ImageBuffer, Rgba, RgbaImage, Pixel};
 
 #[derive(Args)]
 #[clap(
@@ -24,44 +24,47 @@ To output only the final result, use the \"--screenshot\" arg or manually skip t
 pub struct RenderInput {
     #[clap(short, long)]
     #[clap(value_name("PATH"))]
-    #[clap(help = "Filepath of input log file", display_order = 0)]
+    #[clap(help = "Filepath of input log file")]
+    #[clap(display_order = 0)]
     src: String,
     #[clap(short, long)]
     #[clap(value_name("PATH"))]
-    #[clap(
-        help = "Filepath of output frames [Defaults to STDOUT]",
-        display_order = 1
-    )]
+    #[clap(help = "Filepath of output frames")]
+    #[clap(long_help = "Filepath of output frames [defaults to STDOUT]")]
+    #[clap(display_order = 0)]
     dst: Option<String>,
     #[clap(short, long)]
     #[clap(value_name("PATH"))]
     #[clap(help = "Filepath of background image")]
+    #[clap(display_order = 0)]
     bg: Option<String>,
     #[clap(short, long)]
     #[clap(value_name("PATH"))]
-    #[clap(help = "Filepath of palette [.json, .txt, .gpl, .aco, .csv]")]
+    #[clap(help = "Filepath of palette")]
+    #[clap(long_help = "Filepath of palette [possible types: .json, .txt, .gpl, .aco, .csv]")]
+    #[clap(display_order = 0)]
     palette: Option<String>,
-    #[clap(long)]
-    #[clap(max_values(2))]
-    #[clap(min_values(2))]
-    #[clap(value_name("INT"))]
-    #[clap(help = "Size of canvas")]
-    size: Option<Vec<u32>>,
     #[clap(long, arg_enum)]
     #[clap(value_name("ENUM"))]
     #[clap(help = "Type of render")]
     r#type: Option<RenderType>,
     #[clap(long)]
     #[clap(value_name("LONG"))]
-    #[clap(help = "Time between frames (0 is equilavent to i64::MAX)")]
+    #[clap(help = "Time between frames (0 is max)")]
     step: Option<i64>,
     #[clap(long)]
     #[clap(value_name("INT"))]
-    #[clap(help = "Skip n frames")]
+    #[clap(help = "Skip specified frames")]
     skip: Option<usize>,
     #[clap(long)]
-    #[clap(help = "Only return final frame (Alias for \"--step 0 --skip 1\")")]
+    #[clap(help = "Render only final frame")]
+    #[clap(long_help = "Render only final frame (Alias of \"--step 0 --skip 1\")")]
     screenshot: bool,
+    // #[clap(long)]
+    // #[clap(value_name("FLOAT"))]
+    // #[clap(help = "Opacity of render")]
+    // #[clap(long_help = "Opacity of render over background")]
+    // opacity: Option<f32>,
 }
 
 // TODO: Clean
@@ -123,6 +126,7 @@ enum RenderType {
     Normal,
     Heat,
     Virgin,
+    Activity,
 }
 
 impl PxlsInput for RenderInput {
@@ -135,24 +139,18 @@ impl PxlsInput for RenderInput {
         let pixels = Render::get_pixels(&self.src)?;
         let background = match &self.bg {
             Some(path) => ImageReader::open(path)?.decode()?.to_rgba8(),
-            // TODO: Improve functionality
-            None => match &self.size {
-                Some(size) => {
-                    ImageBuffer::from_pixel(size[0], size[1], image::Rgba::from([0, 0, 0, 0]))
-                }
-                None => {
-                    let mut size = (0, 0);
-                    for pixel in &pixels {
-                        if pixel.x + 1 > size.0 {
-                            size.0 = pixel.x + 1;
-                        }
-                        if pixel.y + 1 > size.1 {
-                            size.1 = pixel.y + 1;
-                        }
+            None => {
+                let mut size = (0, 0);
+                for pixel in &pixels {
+                    if pixel.x + 1 > size.0 {
+                        size.0 = pixel.x + 1;
                     }
-                    ImageBuffer::from_pixel(size.0, size.1, image::Rgba::from([0, 0, 0, 0]))
+                    if pixel.y + 1 > size.1 {
+                        size.1 = pixel.y + 1;
+                    }
                 }
-            },
+                ImageBuffer::from_pixel(size.0, size.1, image::Rgba::from([0, 0, 0, 0]))
+            }
         };
 
         let step = match self.step {
@@ -188,36 +186,158 @@ impl PxlsInput for RenderInput {
     }
 }
 
+trait Renderable {
+    fn render(&mut self, actions: &[PixelAction], frame: &mut RgbaImage);
+}
+
+struct NormalRender<'a> {
+    background: &'a RgbaImage,
+    palette: &'a [[u8; 4]],
+}
+
+impl<'a> NormalRender<'a> {
+    fn new(background: &'a RgbaImage, palette: &'a [[u8; 4]]) -> Self {
+        Self {
+            background,
+            palette,
+        }
+    }
+}
+
+impl<'a> Renderable for NormalRender<'a> {
+    fn render(&mut self, actions: &[PixelAction], frame: &mut RgbaImage) {
+        for action in actions {
+            if let Some(pixel) = self.palette.get(action.i) {
+                frame.put_pixel(action.x, action.y, Rgba::from(*pixel));
+            } else {
+                frame.put_pixel(
+                    action.x,
+                    action.y,
+                    *self.background.get_pixel(action.x, action.y),
+                );
+            }
+        }
+    }
+}
+
+struct HeatMapRender {
+    heatmap: Vec<i32>,
+    max: i32,
+    width: u32,
+    height: u32,
+}
+
+impl HeatMapRender {
+    fn new(width: u32, height: u32) -> Self {
+        Self {
+            heatmap: vec![0; width as usize * height as usize],
+            max: i32::MIN,
+            width,
+            height,
+        }
+    }
+
+    const fn index(&self, x: usize, y: usize) -> usize {
+        x + y * self.width as usize
+    }
+}
+
+impl Renderable for HeatMapRender {
+    fn render(&mut self, actions: &[PixelAction], frame: &mut RgbaImage) {
+        for action in actions {
+            let index = self.index(action.x as usize, action.y as usize);
+            self.heatmap[index] += 1;
+
+            if self.heatmap[index] > self.max {
+                self.max = self.heatmap[index];
+            }
+        }
+
+        for y in 0..self.height {
+            for x in 0..self.width {
+                let index = self.index(x as usize, y as usize);
+                let val = self.heatmap[index] as f32 / self.max as f32;
+
+                let r = f32::min(f32::max(0.0, 1.5 - f32::abs(1.0 - 4.0 * (val - 0.5))), 1.0);
+                let g = f32::min(f32::max(0.0, 1.5 - f32::abs(1.0 - 4.0 * (val - 0.25))), 1.0);
+                let b = f32::min(f32::max(0.0, 1.5 - f32::abs(1.0 - 4.0 * (val - 0.0))), 1.0);
+
+                let r = (r * 255.0) as u8;
+                let g = (g * 255.0) as u8;
+                let b = (b * 255.0) as u8;
+
+                frame.put_pixel(x, y, Rgba::from([r, g, b, 255]));
+            }
+        }
+    }
+}
+
+struct VirginRender {
+    virginmap: Vec<bool>,
+    width: u32,
+    height: u32,
+}
+
+impl VirginRender {
+    fn new(width: u32, height: u32) -> Self {
+        Self {
+            virginmap: vec![true; width as usize * height as usize],
+            width,
+            height,
+        }
+    }
+
+    const fn index(&self, x: usize, y: usize) -> usize {
+        x + y * self.width as usize
+    }
+}
+
+impl Renderable for VirginRender {
+    fn render(&mut self, actions: &[PixelAction], frame: &mut RgbaImage) {
+        for action in actions {
+            let index = self.index(action.x as usize, action.y as usize);
+            self.virginmap[index] = false;
+        }
+
+        for y in 0..self.height {
+            for x in 0..self.width {
+                let index = self.index(x as usize, y as usize);
+                if self.virginmap[index] {
+                    frame.put_pixel(x, y, Rgba::from([0, 255, 0, 255]));
+                } else {
+                    frame.put_pixel(x, y, Rgba::from([0, 0, 0, 255]));
+                }
+            }
+        }
+    }
+}
+
 impl PxlsCommand for Render {
     fn run(&self, settings: &Cli) -> PxlsResult<()> {
         let stdin = io::stdout();
         let pixels = Self::get_pixels(&self.src)?;
         let frames = Self::get_frame_slices(&pixels, self.step);
-        let mut current_frame = self.background.clone();
+        let mut current = self.background.clone();
 
         if settings.verbose {
             println!("Rendering {} frames", frames.len());
         }
+
+        let mut renderer: Box<dyn Renderable> = match self.style {
+            RenderType::Normal => Box::new(NormalRender::new(&self.background, &self.palette)),
+            RenderType::Heat => Box::new(HeatMapRender::new(current.width(), current.height())),
+            RenderType::Virgin => Box::new(VirginRender::new(current.width(), current.height())),
+            RenderType::Activity => unimplemented!(),
+        };
 
         for (i, frame) in frames[self.skip..].iter().enumerate() {
-            if !frame.is_empty() {
-                current_frame = match self.style {
-                    RenderType::Normal => {
-                        Self::get_frame(&self.background, &current_frame, frame, &self.palette)
-                    }
-                    RenderType::Heat => unimplemented!(),
-                    RenderType::Virgin => unimplemented!(),
-                };
-            }
+            current = current.clone();
+            renderer.render(frame, &mut current);
 
             match &self.dst {
-                Some(path) => Self::frame_to_file(&current_frame, &path, i)?,
-                None => Self::frame_to_raw(&current_frame, &mut stdin.lock())?,
+                Some(path) => Self::frame_to_file(&current, &path, i)?,
+                None => Self::frame_to_raw(&current, &mut stdin.lock())?,
             }
-        }
-
-        if settings.verbose {
-            println!("Rendering {} frames", frames.len());
         }
 
         Ok(())
@@ -233,7 +353,6 @@ impl Render {
             .ok_or(PxlsError::Unsupported())?;
         let mut dst = path.to_owned();
         dst.truncate(dst.len() - ext.len() - 1);
-        
         frame.save(format!("{}_{}.{}", dst, i, ext))?;
         Ok(())
     }
@@ -245,7 +364,6 @@ impl Render {
         Ok(())
     }
 
-    // TODO: Better error handling
     // TODO: External io
     fn get_pixels(path: &str) -> PxlsResult<Vec<PixelAction>> {
         PxlsParser::parse(
@@ -254,10 +372,7 @@ impl Render {
                 Ok(PixelAction {
                     x: s[2].parse()?,
                     y: s[3].parse()?,
-                    i: match s[4].parse::<usize>()? {
-                        255 => 0,
-                        i => i,
-                    },
+                    i: s[4].parse()?,
                     delta: NaiveDateTime::parse_from_str(s[0], "%Y-%m-%d %H:%M:%S,%3f")?
                         .timestamp_millis(),
                 })
@@ -288,44 +403,5 @@ impl Render {
         }
 
         frames
-    }
-
-    fn get_frame(
-        background: &RgbaImage,
-        previous: &RgbaImage,
-        actions: &[PixelAction],
-        palette: &[[u8; 4]],
-    ) -> RgbaImage {
-        let mut frame = previous.clone();
-        for action in actions {
-            if let Some(pixel) = palette.get(action.i) {
-                frame.put_pixel(action.x, action.y, image::Rgba::from(*pixel));
-            } else {
-                frame.put_pixel(
-                    action.x,
-                    action.y,
-                    *background.get_pixel(action.x, action.y),
-                );
-            }
-        }
-        frame
-    }
-
-    // TODO
-    fn _get_heat_frame(
-        _background: &RgbaImage,
-        _pixels: &[PixelAction],
-        _palette: &[[u8; 4]],
-    ) -> RgbaImage {
-        unimplemented!()
-    }
-
-    // TODO
-    fn _get_virgin_images(
-        _background: &RgbaImage,
-        _pixels: &[PixelAction],
-        _palette: &[[u8; 4]],
-    ) -> RgbaImage {
-        unimplemented!()
     }
 }
