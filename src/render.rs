@@ -5,7 +5,7 @@ use std::path::Path;
 
 use crate::command::{PxlsCommand, PxlsError, PxlsInput, PxlsResult};
 use crate::palette::PaletteParser;
-use crate::pixel::{Pixel as PxlsPixel, PxlsParser};
+use crate::pixel::{Pixel as PxlsPixel, PixelKind, PxlsParser}; // TODO: PxlsPixel -> Pixel
 use crate::Cli;
 
 use chrono::NaiveDateTime;
@@ -128,6 +128,10 @@ enum RenderType {
     Age,
 }
 
+trait Renderable {
+    fn render(&mut self, actions: &[PxlsPixel], frame: &mut RgbaImage);
+}
+
 impl PxlsInput for RenderInput {
     fn parse(&self, _settings: &Cli) -> PxlsResult<Box<dyn PxlsCommand>> {
         let style = match self.r#type {
@@ -185,190 +189,6 @@ impl PxlsInput for RenderInput {
     }
 }
 
-trait Renderable {
-    fn render(&mut self, actions: &[PxlsPixel], frame: &mut RgbaImage);
-}
-
-struct NormalRender<'a> {
-    background: &'a RgbaImage,
-    palette: &'a [[u8; 4]],
-}
-
-impl<'a> NormalRender<'a> {
-    fn new(background: &'a RgbaImage, palette: &'a [[u8; 4]]) -> Self {
-        Self {
-            background,
-            palette,
-        }
-    }
-}
-
-impl<'a> Renderable for NormalRender<'a> {
-    fn render(&mut self, actions: &[PxlsPixel], frame: &mut RgbaImage) {
-        for action in actions {
-            if let Some(pixel) = self.palette.get(action.index) {
-                frame.put_pixel(action.x, action.y, Rgba::from(*pixel));
-            } else {
-                frame.put_pixel(
-                    action.x,
-                    action.y,
-                    *self.background.get_pixel(action.x, action.y),
-                );
-            }
-        }
-    }
-}
-
-struct HeatMapRender {
-    heat_map: Vec<i32>,
-    max: i32,
-    width: u32,
-    height: u32,
-}
-
-impl HeatMapRender {
-    fn new(width: u32, height: u32) -> Self {
-        Self {
-            heat_map: vec![0; width as usize * height as usize],
-            max: i32::MIN,
-            width,
-            height,
-        }
-    }
-
-    const fn index(&self, x: usize, y: usize) -> usize {
-        x + y * self.width as usize
-    }
-}
-
-impl Renderable for HeatMapRender {
-    fn render(&mut self, actions: &[PxlsPixel], frame: &mut RgbaImage) {
-        for action in actions {
-            let index = self.index(action.x as usize, action.y as usize);
-            self.heat_map[index] += 1;
-
-            if self.heat_map[index] > self.max {
-                self.max = self.heat_map[index];
-            }
-        }
-
-        for y in 0..self.height {
-            for x in 0..self.width {
-                let index = self.index(x as usize, y as usize);
-                let val = self.heat_map[index] as f32 / self.max as f32;
-
-                let r = f32::min(f32::max(0.0, 1.5 - f32::abs(1.0 - 4.0 * (val - 0.5))), 1.0);
-                let g = f32::min(f32::max(0.0, 1.5 - f32::abs(1.0 - 4.0 * (val - 0.25))), 1.0);
-                let b = f32::min(f32::max(0.0, 1.5 - f32::abs(1.0 - 4.0 * (val - 0.0))), 1.0);
-
-                let r = (r * 255.0) as u8;
-                let g = (g * 255.0) as u8;
-                let b = (b * 255.0) as u8;
-
-                frame.put_pixel(x, y, Rgba::from([r, g, b, 255]));
-            }
-        }
-    }
-}
-
-struct VirginRender {
-    virgin_map: Vec<bool>,
-    width: u32,
-    height: u32,
-}
-
-impl VirginRender {
-    fn new(width: u32, height: u32) -> Self {
-        Self {
-            virgin_map: vec![true; width as usize * height as usize],
-            width,
-            height,
-        }
-    }
-
-    const fn index(&self, x: usize, y: usize) -> usize {
-        x + y * self.width as usize
-    }
-}
-
-impl Renderable for VirginRender {
-    fn render(&mut self, actions: &[PxlsPixel], frame: &mut RgbaImage) {
-        for action in actions {
-            let index = self.index(action.x as usize, action.y as usize);
-            self.virgin_map[index] = false;
-        }
-
-        for y in 0..self.height {
-            for x in 0..self.width {
-                let index = self.index(x as usize, y as usize);
-                if self.virgin_map[index] {
-                    frame.put_pixel(x, y, Rgba::from([0, 255, 0, 255]));
-                } else {
-                    frame.put_pixel(x, y, Rgba::from([0, 0, 0, 255]));
-                }
-            }
-        }
-    }
-}
-
-struct ActivityRender {
-    activity_map: Vec<i64>,
-    width: u32,
-    height: u32,
-    step: i64,
-    i: i64,
-}
-
-impl ActivityRender {
-    fn new(width: u32, height: u32, step: i64) -> Self {
-        Self {
-            activity_map: vec![0; width as usize * height as usize],
-            width,
-            height,
-            step,
-            i: 1,
-        }
-    }
-
-    const fn index(&self, x: usize, y: usize) -> usize {
-        x + y * self.width as usize
-    }
-}
-
-impl Renderable for ActivityRender {
-    fn render(&mut self, actions: &[PxlsPixel], frame: &mut RgbaImage) {
-        for action in actions {
-            let index = self.index(action.x as usize, action.y as usize);
-            self.activity_map[index] = action.timestamp;
-
-            if action.timestamp > self.step * self.i {
-                self.i = action.timestamp as i64 / self.step + 1;
-                eprintln!("i: {}", self.i);
-            }
-        }
-        
-        for y in 0..self.height {
-            for x in 0..self.width {
-                let index = self.index(x as usize, y as usize);
-                let delta = self.activity_map[index];
-
-                // If less than 15 minutes
-                // TODO: Customisable
-                let diff = (self.step * self.i - delta) as f32 / 900000.0;
-                if diff < 1.0 {
-                    let val = 1.0 - diff;
-                    let r = (val * 205.0) as u8;
-                    let g = (val * 92.0) as u8;
-                    let b = (val * 92.0) as u8;
-                    frame.put_pixel(x, y, Rgba::from([r, g, b, 255]));
-                } else {
-                    frame.put_pixel(x, y, Rgba::from([0, 0, 0, 255]));
-                }
-            }
-        }
-    }
-}
-
 impl PxlsCommand for Render {
     fn run(&self, settings: &Cli) -> PxlsResult<()> {
         let stdin = io::stdout();
@@ -388,7 +208,7 @@ impl PxlsCommand for Render {
             RenderType::Heat => Box::new(HeatMapRender::new(width, height)),
             RenderType::Virgin => Box::new(VirginRender::new(width, height)),
             RenderType::Activity => Box::new(ActivityRender::new(width, height, self.step)),
-            RenderType::Action => unimplemented!(),
+            RenderType::Action => Box::new(ActionRender {}),
             RenderType::Milliseconds => unimplemented!(),
             RenderType::Seconds => unimplemented!(),
             RenderType::Minutes => unimplemented!(),
@@ -471,5 +291,190 @@ impl Render {
         }
 
         frames
+    }
+}
+
+struct NormalRender<'a> {
+    background: &'a RgbaImage,
+    palette: &'a [[u8; 4]],
+}
+
+impl<'a> NormalRender<'a> {
+    fn new(background: &'a RgbaImage, palette: &'a [[u8; 4]]) -> Self {
+        Self {
+            background,
+            palette,
+        }
+    }
+}
+
+impl<'a> Renderable for NormalRender<'a> {
+    fn render(&mut self, actions: &[PxlsPixel], frame: &mut RgbaImage) {
+        for action in actions {
+            if let Some(pixel) = self.palette.get(action.index) {
+                frame.put_pixel(action.x, action.y, Rgba::from(*pixel));
+            } else {
+                frame.put_pixel(
+                    action.x,
+                    action.y,
+                    *self.background.get_pixel(action.x, action.y),
+                );
+            }
+        }
+    }
+}
+
+struct HeatMapRender {
+    heat_map: Vec<i32>,
+    max: i32,
+    width: u32,
+    height: u32,
+}
+
+impl HeatMapRender {
+    fn new(width: u32, height: u32) -> Self {
+        Self {
+            heat_map: vec![0; width as usize * height as usize],
+            max: i32::MIN,
+            width,
+            height,
+        }
+    }
+}
+
+impl Renderable for HeatMapRender {
+    fn render(&mut self, actions: &[PxlsPixel], frame: &mut RgbaImage) {
+        for action in actions {
+            let index = action.x + action.y * self.width;
+            self.heat_map[index as usize] += 1;
+
+            if self.heat_map[index as usize] > self.max {
+                self.max = self.heat_map[index as usize];
+            }
+        }
+
+        for y in 0..self.height {
+            for x in 0..self.width {
+                let index = x + y * self.width;
+                let val = self.heat_map[index as usize] as f32 / self.max as f32;
+
+                let r = f32::min(f32::max(0.0, 1.5 - f32::abs(1.0 - 4.0 * (val - 0.5))), 1.0);
+                let g = f32::min(f32::max(0.0, 1.5 - f32::abs(1.0 - 4.0 * (val - 0.25))), 1.0);
+                let b = f32::min(f32::max(0.0, 1.5 - f32::abs(1.0 - 4.0 * (val - 0.0))), 1.0);
+
+                let r = (r * 255.0) as u8;
+                let g = (g * 255.0) as u8;
+                let b = (b * 255.0) as u8;
+
+                frame.put_pixel(x, y, Rgba::from([r, g, b, 255]));
+            }
+        }
+    }
+}
+
+struct VirginRender {
+    virgin_map: Vec<bool>,
+    width: u32,
+    height: u32,
+}
+
+impl VirginRender {
+    fn new(width: u32, height: u32) -> Self {
+        Self {
+            virgin_map: vec![true; width as usize * height as usize],
+            width,
+            height,
+        }
+    }
+}
+
+impl Renderable for VirginRender {
+    fn render(&mut self, actions: &[PxlsPixel], frame: &mut RgbaImage) {
+        for action in actions {
+            let index = action.x + action.y * self.width;
+            self.virgin_map[index as usize] = false;
+        }
+
+        for y in 0..self.height {
+            for x in 0..self.width {
+                let index = x + y * self.width;
+                if self.virgin_map[index as usize] {
+                    frame.put_pixel(x, y, Rgba::from([0, 255, 0, 255]));
+                } else {
+                    frame.put_pixel(x, y, Rgba::from([0, 0, 0, 255]));
+                }
+            }
+        }
+    }
+}
+
+struct ActivityRender {
+    activity_map: Vec<i64>,
+    width: u32,
+    height: u32,
+    step: i64,
+    i: i64,
+}
+
+impl ActivityRender {
+    fn new(width: u32, height: u32, step: i64) -> Self {
+        Self {
+            activity_map: vec![0; width as usize * height as usize],
+            width,
+            height,
+            step,
+            i: 1,
+        }
+    }
+}
+
+impl Renderable for ActivityRender {
+    fn render(&mut self, actions: &[PxlsPixel], frame: &mut RgbaImage) {
+        for action in actions {
+            let index = action.x + action.y * self.width;
+            self.activity_map[index as usize] = action.timestamp;
+
+            if action.timestamp > self.step * self.i {
+                self.i = action.timestamp as i64 / self.step + 1;
+                eprintln!("i: {}", self.i);
+            }
+        }
+        for y in 0..self.height {
+            for x in 0..self.width {
+                let index = x + y * self.width;
+                let delta = self.activity_map[index as usize];
+
+                // If less than 15 minutes
+                // TODO: Customisable
+                let diff = (self.step * self.i - delta) as f32 / 900000.0;
+                if diff < 1.0 {
+                    let val = 1.0 - diff;
+                    let r = (val * 205.0) as u8;
+                    let g = (val * 92.0) as u8;
+                    let b = (val * 92.0) as u8;
+                    frame.put_pixel(x, y, Rgba::from([r, g, b, 255]));
+                } else {
+                    frame.put_pixel(x, y, Rgba::from([0, 0, 0, 255]));
+                }
+            }
+        }
+    }
+}
+
+struct ActionRender {}
+
+impl Renderable for ActionRender {
+    fn render(&mut self, actions: &[PxlsPixel], frame: &mut RgbaImage) {
+        for action in actions {
+            let val = match action.kind {
+                PixelKind::Undo => Rgba::from([255, 0, 255, 255]),
+                PixelKind::Place => Rgba::from([0, 0, 255, 255]),
+                PixelKind::Overwrite => Rgba::from([0, 255, 255, 255]),
+                PixelKind::Rollback => Rgba::from([0, 255, 0, 255]),
+                PixelKind::RollbackUndo => Rgba::from([255, 255, 0, 255]),
+                PixelKind::Nuke => Rgba::from([255, 0, 0, 255]),
+            };
+            frame.put_pixel(action.x, action.y, val);
+        }
     }
 }
