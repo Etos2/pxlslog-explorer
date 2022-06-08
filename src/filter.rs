@@ -2,11 +2,11 @@ use std::fs::{self, OpenOptions};
 use std::io::{self, prelude::*};
 
 use crate::command::{PxlsCommand, PxlsInput, PxlsResult};
-use crate::parser::PxlsParser;
+use crate::pixel::{PixelKind, PxlsParser};
 use crate::Cli;
 
 use chrono::NaiveDateTime;
-use clap::{ArgEnum, ArgGroup, Args};
+use clap::{ArgGroup, Args};
 use rayon::prelude::*;
 use sha2::{Digest, Sha256};
 
@@ -67,7 +67,7 @@ pub struct FilterInput {
     #[clap(multiple_values(true))]
     #[clap(value_name("ENUM"))]
     #[clap(help = "Only include entries with this action", display_order = 9999)]
-    action: Vec<Action>,
+    action: Vec<PixelKind>,
 }
 
 pub struct Filter {
@@ -78,17 +78,7 @@ pub struct Filter {
     pub colors: Vec<i32>,
     pub region: Option<[i32; 4]>,
     pub hashes: Vec<String>,
-    pub actions: Vec<Action>,
-}
-
-#[derive(Debug, Copy, Clone, ArgEnum)]
-pub enum Action {
-    Place,
-    Undo,
-    Overwrite,
-    Rollback,
-    RollbackUndo,
-    Nuke,
+    pub actions: Vec<PixelKind>,
 }
 
 impl PxlsInput for FilterInput {
@@ -255,12 +245,12 @@ impl Filter {
             let mut temp = false;
             for action in &self.actions {
                 temp |= match action {
-                    Action::Place => tokens[5] == "user place",
-                    Action::Undo => tokens[5] == "user undo",
-                    Action::Overwrite => tokens[5] == "mod overwrite",
-                    Action::Rollback => tokens[5] == "rollback",
-                    Action::RollbackUndo => tokens[5] == "rollback undo",
-                    Action::Nuke => tokens[5] == "console nuke",
+                    PixelKind::Place => tokens[5] == "user place",
+                    PixelKind::Undo => tokens[5] == "user undo",
+                    PixelKind::Overwrite => tokens[5] == "mod overwrite",
+                    PixelKind::Rollback => tokens[5] == "rollback",
+                    PixelKind::RollbackUndo => tokens[5] == "rollback undo",
+                    PixelKind::Nuke => tokens[5] == "console nuke",
                 };
             }
             out &= temp;

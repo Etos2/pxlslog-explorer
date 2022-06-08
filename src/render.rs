@@ -4,7 +4,8 @@ use std::io::{self, Write};
 use std::path::Path;
 
 use crate::command::{PxlsCommand, PxlsError, PxlsInput, PxlsResult};
-use crate::parser::{PaletteParser, PxlsParser};
+use crate::palette::PaletteParser;
+use crate::pixel::{Pixel as PxlsPixel, PxlsParser};
 use crate::Cli;
 
 use chrono::NaiveDateTime;
@@ -103,14 +104,6 @@ const PALETTE: [[u8; 4]; 32] = [
     [116, 12, 0, 255],    // Maroon
 ];
 
-#[derive(Debug, Copy, Clone)]
-pub struct PixelAction {
-    x: u32,
-    y: u32,
-    i: usize,
-    delta: i64,
-}
-
 pub struct Render {
     src: String,
     dst: Option<String>,
@@ -193,7 +186,7 @@ impl PxlsInput for RenderInput {
 }
 
 trait Renderable {
-    fn render(&mut self, actions: &[PixelAction], frame: &mut RgbaImage);
+    fn render(&mut self, actions: &[PxlsPixel], frame: &mut RgbaImage);
 }
 
 struct NormalRender<'a> {
@@ -211,9 +204,9 @@ impl<'a> NormalRender<'a> {
 }
 
 impl<'a> Renderable for NormalRender<'a> {
-    fn render(&mut self, actions: &[PixelAction], frame: &mut RgbaImage) {
+    fn render(&mut self, actions: &[PxlsPixel], frame: &mut RgbaImage) {
         for action in actions {
-            if let Some(pixel) = self.palette.get(action.i) {
+            if let Some(pixel) = self.palette.get(action.index) {
                 frame.put_pixel(action.x, action.y, Rgba::from(*pixel));
             } else {
                 frame.put_pixel(
@@ -249,7 +242,7 @@ impl HeatMapRender {
 }
 
 impl Renderable for HeatMapRender {
-    fn render(&mut self, actions: &[PixelAction], frame: &mut RgbaImage) {
+    fn render(&mut self, actions: &[PxlsPixel], frame: &mut RgbaImage) {
         for action in actions {
             let index = self.index(action.x as usize, action.y as usize);
             self.heat_map[index] += 1;
@@ -299,7 +292,7 @@ impl VirginRender {
 }
 
 impl Renderable for VirginRender {
-    fn render(&mut self, actions: &[PixelAction], frame: &mut RgbaImage) {
+    fn render(&mut self, actions: &[PxlsPixel], frame: &mut RgbaImage) {
         for action in actions {
             let index = self.index(action.x as usize, action.y as usize);
             self.virgin_map[index] = false;
@@ -343,13 +336,13 @@ impl ActivityRender {
 }
 
 impl Renderable for ActivityRender {
-    fn render(&mut self, actions: &[PixelAction], frame: &mut RgbaImage) {
+    fn render(&mut self, actions: &[PxlsPixel], frame: &mut RgbaImage) {
         for action in actions {
             let index = self.index(action.x as usize, action.y as usize);
-            self.activity_map[index] = action.delta;
+            self.activity_map[index] = action.timestamp;
 
-            if action.delta > self.step * self.i {
-                self.i = action.delta as i64 / self.step + 1;
+            if action.timestamp > self.step * self.i {
+                self.i = action.timestamp as i64 / self.step + 1;
                 eprintln!("i: {}", self.i);
             }
         }
@@ -438,30 +431,31 @@ impl Render {
     }
 
     // TODO: External io
-    fn get_pixels(path: &str) -> PxlsResult<Vec<PixelAction>> {
+    fn get_pixels(path: &str) -> PxlsResult<Vec<PxlsPixel>> {
         PxlsParser::parse(
             &mut OpenOptions::new().read(true).open(path)?,
-            |s: &[&str]| -> PxlsResult<PixelAction> {
-                Ok(PixelAction {
+            |s: &[&str]| -> PxlsResult<PxlsPixel> {
+                Ok(PxlsPixel {
                     x: s[2].parse()?,
                     y: s[3].parse()?,
-                    i: s[4].parse()?,
-                    delta: NaiveDateTime::parse_from_str(s[0], "%Y-%m-%d %H:%M:%S,%3f")?
+                    index: s[4].parse()?,
+                    timestamp: NaiveDateTime::parse_from_str(s[0], "%Y-%m-%d %H:%M:%S,%3f")?
                         .timestamp_millis(),
+                    kind: s[5].parse()?,
                 })
             },
         )
     }
 
-    fn get_frame_slices(pixels: &[PixelAction], step: i64) -> Vec<&[PixelAction]> {
-        let mut frames: Vec<&[PixelAction]> = vec![];
+    fn get_frame_slices(pixels: &[PxlsPixel], step: i64) -> Vec<&[PxlsPixel]> {
+        let mut frames: Vec<&[PxlsPixel]> = vec![];
         let mut start = 0;
 
         frames.push(&[]);
         if step != 0 {
             for (end, pair) in pixels.windows(2).enumerate() {
-                // Integer division shenanigans
-                let diff = pair[1].delta / step - pair[0].delta / step;
+                // TODO: Diff could be negative
+                let diff = pair[1].timestamp / step - pair[0].timestamp / step;
                 if diff > 0 {
                     frames.push(&pixels[start..=end]);
                     start = end;
