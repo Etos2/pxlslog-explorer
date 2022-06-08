@@ -10,7 +10,7 @@ use crate::Cli;
 use chrono::NaiveDateTime;
 use clap::{ArgEnum, ArgGroup, Args};
 use image::io::Reader as ImageReader;
-use image::{ImageBuffer, Rgba, RgbaImage, Pixel};
+use image::{ImageBuffer, Rgba, RgbaImage};
 
 #[derive(Args)]
 #[clap(
@@ -127,6 +127,12 @@ enum RenderType {
     Heat,
     Virgin,
     Activity,
+    Action,
+    Milliseconds,
+    Seconds,
+    Minutes,
+    Combined,
+    Age,
 }
 
 impl PxlsInput for RenderInput {
@@ -221,7 +227,7 @@ impl<'a> Renderable for NormalRender<'a> {
 }
 
 struct HeatMapRender {
-    heatmap: Vec<i32>,
+    heat_map: Vec<i32>,
     max: i32,
     width: u32,
     height: u32,
@@ -230,7 +236,7 @@ struct HeatMapRender {
 impl HeatMapRender {
     fn new(width: u32, height: u32) -> Self {
         Self {
-            heatmap: vec![0; width as usize * height as usize],
+            heat_map: vec![0; width as usize * height as usize],
             max: i32::MIN,
             width,
             height,
@@ -246,17 +252,17 @@ impl Renderable for HeatMapRender {
     fn render(&mut self, actions: &[PixelAction], frame: &mut RgbaImage) {
         for action in actions {
             let index = self.index(action.x as usize, action.y as usize);
-            self.heatmap[index] += 1;
+            self.heat_map[index] += 1;
 
-            if self.heatmap[index] > self.max {
-                self.max = self.heatmap[index];
+            if self.heat_map[index] > self.max {
+                self.max = self.heat_map[index];
             }
         }
 
         for y in 0..self.height {
             for x in 0..self.width {
                 let index = self.index(x as usize, y as usize);
-                let val = self.heatmap[index] as f32 / self.max as f32;
+                let val = self.heat_map[index] as f32 / self.max as f32;
 
                 let r = f32::min(f32::max(0.0, 1.5 - f32::abs(1.0 - 4.0 * (val - 0.5))), 1.0);
                 let g = f32::min(f32::max(0.0, 1.5 - f32::abs(1.0 - 4.0 * (val - 0.25))), 1.0);
@@ -273,7 +279,7 @@ impl Renderable for HeatMapRender {
 }
 
 struct VirginRender {
-    virginmap: Vec<bool>,
+    virgin_map: Vec<bool>,
     width: u32,
     height: u32,
 }
@@ -281,7 +287,7 @@ struct VirginRender {
 impl VirginRender {
     fn new(width: u32, height: u32) -> Self {
         Self {
-            virginmap: vec![true; width as usize * height as usize],
+            virgin_map: vec![true; width as usize * height as usize],
             width,
             height,
         }
@@ -296,17 +302,110 @@ impl Renderable for VirginRender {
     fn render(&mut self, actions: &[PixelAction], frame: &mut RgbaImage) {
         for action in actions {
             let index = self.index(action.x as usize, action.y as usize);
-            self.virginmap[index] = false;
+            self.virgin_map[index] = false;
         }
 
         for y in 0..self.height {
             for x in 0..self.width {
                 let index = self.index(x as usize, y as usize);
-                if self.virginmap[index] {
+                if self.virgin_map[index] {
                     frame.put_pixel(x, y, Rgba::from([0, 255, 0, 255]));
                 } else {
                     frame.put_pixel(x, y, Rgba::from([0, 0, 0, 255]));
                 }
+            }
+        }
+    }
+}
+
+struct ActivityRender {
+    activity_map: Vec<i64>,
+    width: u32,
+    height: u32,
+    step: i64,
+    i: i64,
+}
+
+impl ActivityRender {
+    fn new(width: u32, height: u32, step: i64) -> Self {
+        Self {
+            activity_map: vec![0; width as usize * height as usize],
+            width,
+            height,
+            step,
+            i: 1,
+        }
+    }
+
+    const fn index(&self, x: usize, y: usize) -> usize {
+        x + y * self.width as usize
+    }
+}
+
+impl Renderable for ActivityRender {
+    fn render(&mut self, actions: &[PixelAction], frame: &mut RgbaImage) {
+        for action in actions {
+            let index = self.index(action.x as usize, action.y as usize);
+            self.activity_map[index] = action.delta;
+
+            if action.delta > self.step * self.i {
+                self.i = action.delta as i64 / self.step + 1;
+                eprintln!("i: {}", self.i);
+            }
+        }
+        
+        for y in 0..self.height {
+            for x in 0..self.width {
+                let index = self.index(x as usize, y as usize);
+                let delta = self.activity_map[index];
+
+                // If less than 15 minutes
+                // TODO: Customisable
+                let diff = (self.step * self.i - delta) as f32 / 900000.0;
+                if diff < 1.0 {
+                    let val = 1.0 - diff;
+                    let r = (val * 205.0) as u8;
+                    let g = (val * 92.0) as u8;
+                    let b = (val * 92.0) as u8;
+                    frame.put_pixel(x, y, Rgba::from([r, g, b, 255]));
+                } else {
+                    frame.put_pixel(x, y, Rgba::from([0, 0, 0, 255]));
+                }
+            }
+        }
+    }
+}
+
+struct ActionRender {
+    action_map: Vec<i64>,
+    width: u32,
+    height: u32,
+}
+
+impl ActionRender {
+    fn new(width: u32, height: u32) -> Self {
+        Self {
+            action_map: vec![0; width as usize * height as usize],
+            width,
+            height,
+        }
+    }
+
+    const fn index(&self, x: usize, y: usize) -> usize {
+        x + y * self.width as usize
+    }
+}
+
+impl Renderable for ActionRender {
+    fn render(&mut self, actions: &[PixelAction], frame: &mut RgbaImage) {
+        for action in actions {
+            let index = self.index(action.x as usize, action.y as usize);
+            self.action_map[index] = action.delta;
+        }
+        
+        for y in 0..self.height {
+            for x in 0..self.width {
+
             }
         }
     }
@@ -317,7 +416,10 @@ impl PxlsCommand for Render {
         let stdin = io::stdout();
         let pixels = Self::get_pixels(&self.src)?;
         let frames = Self::get_frame_slices(&pixels, self.step);
+
         let mut current = self.background.clone();
+        let width = current.width();
+        let height = current.height();
 
         if settings.verbose {
             println!("Rendering {} frames", frames.len());
@@ -325,9 +427,15 @@ impl PxlsCommand for Render {
 
         let mut renderer: Box<dyn Renderable> = match self.style {
             RenderType::Normal => Box::new(NormalRender::new(&self.background, &self.palette)),
-            RenderType::Heat => Box::new(HeatMapRender::new(current.width(), current.height())),
-            RenderType::Virgin => Box::new(VirginRender::new(current.width(), current.height())),
-            RenderType::Activity => unimplemented!(),
+            RenderType::Heat => Box::new(HeatMapRender::new(width, height)),
+            RenderType::Virgin => Box::new(VirginRender::new(width, height)),
+            RenderType::Activity => Box::new(ActivityRender::new(width, height, self.step)),
+            RenderType::Action => unimplemented!(),
+            RenderType::Milliseconds => unimplemented!(),
+            RenderType::Seconds => unimplemented!(),
+            RenderType::Minutes => unimplemented!(),
+            RenderType::Combined => unimplemented!(),
+            RenderType::Age => unimplemented!(),
         };
 
         for (i, frame) in frames[self.skip..].iter().enumerate() {
@@ -387,6 +495,7 @@ impl Render {
         frames.push(&[]);
         if step != 0 {
             for (end, pair) in pixels.windows(2).enumerate() {
+                // Integer division shenanigans
                 let diff = pair[1].delta / step - pair[0].delta / step;
                 if diff > 0 {
                     frames.push(&pixels[start..=end]);
