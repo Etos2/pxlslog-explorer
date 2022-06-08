@@ -6,43 +6,7 @@ use std::path::Path;
 use crate::command::{PxlsError, PxlsResult};
 
 use hex::FromHex;
-use rayon::prelude::*;
 use serde_json::Value;
-
-pub struct PxlsParser {}
-
-impl PxlsParser {
-    pub fn parse_raw<'a, R>(input: &mut R, buffer: &'a mut String) -> PxlsResult<Vec<&'a str>>
-    where
-        R: Read,
-    {
-        input.read_to_string(buffer)?;
-        Ok(buffer
-            .as_parallel_string()
-            .par_split_terminator(|c| c == '\n' || c == '\r' || c == '\t')
-            .filter(|t| !t.is_empty())
-            .collect())
-    }
-
-    pub fn parse<R, T>(input: &mut R, parser: fn(&[&str]) -> PxlsResult<T>) -> PxlsResult<Vec<T>>
-    where
-        R: Read,
-        T: Send,
-    {
-        let mut buffer = String::new();
-        input.read_to_string(&mut buffer)?;
-
-        let temp = buffer
-            .as_parallel_string()
-            .par_split_terminator(|c| c == '\n' || c == '\r' || c == '\t')
-            .filter(|t| !t.is_empty())
-            .collect::<Vec<_>>();
-
-        temp.par_chunks_exact(6)
-            .map(|s| parser(s))
-            .collect::<PxlsResult<Vec<T>>>()
-    }
-}
 
 pub struct PaletteParser {}
 

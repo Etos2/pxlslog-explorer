@@ -1,6 +1,7 @@
 mod command;
 mod filter;
-mod parser;
+mod pixel;
+mod palette;
 mod render;
 
 use command::PxlsInput;
