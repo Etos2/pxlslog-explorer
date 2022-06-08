@@ -376,41 +376,6 @@ impl Renderable for ActivityRender {
     }
 }
 
-struct ActionRender {
-    action_map: Vec<i64>,
-    width: u32,
-    height: u32,
-}
-
-impl ActionRender {
-    fn new(width: u32, height: u32) -> Self {
-        Self {
-            action_map: vec![0; width as usize * height as usize],
-            width,
-            height,
-        }
-    }
-
-    const fn index(&self, x: usize, y: usize) -> usize {
-        x + y * self.width as usize
-    }
-}
-
-impl Renderable for ActionRender {
-    fn render(&mut self, actions: &[PixelAction], frame: &mut RgbaImage) {
-        for action in actions {
-            let index = self.index(action.x as usize, action.y as usize);
-            self.action_map[index] = action.delta;
-        }
-        
-        for y in 0..self.height {
-            for x in 0..self.width {
-
-            }
-        }
-    }
-}
-
 impl PxlsCommand for Render {
     fn run(&self, settings: &Cli) -> PxlsResult<()> {
         let stdin = io::stdout();
