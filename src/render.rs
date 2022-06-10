@@ -237,8 +237,8 @@ impl PxlsCommand for Render {
 
         let mut renderer: Box<dyn Renderable> = match self.style {
             RenderType::Normal => Box::new(NormalRender::new(&self.background, &self.palette)),
-            RenderType::Heat => Box::new(HeatMapRender::new(width, height)),
-            RenderType::Activity => Box::new(ActivityRender::new(width, height, self.step)),
+            RenderType::Activity => Box::new(ActivityRender::new(width, height)),
+            RenderType::Heat => Box::new(HeatRender::new(width, height, self.step)),
             RenderType::Virgin => Box::new(VirginRender {}),
             RenderType::Action => Box::new(ActionRender {}),
             RenderType::Combined => Box::new(CombinedRender {}),
@@ -371,16 +371,16 @@ impl<'a> Renderable for NormalRender<'a> {
 }
 
 // TODO: Remove map
-struct HeatMapRender {
+struct ActivityRender {
     heat_map: Vec<i32>,
     max: i32,
     width: u32,
     height: u32,
 }
 
-impl HeatMapRender {
+impl ActivityRender {
     fn new(width: u32, height: u32) -> Self {
-        Self {
+        ActivityRender {
             heat_map: vec![0; width as usize * height as usize],
             max: i32::MIN,
             width,
@@ -389,7 +389,7 @@ impl HeatMapRender {
     }
 }
 
-impl Renderable for HeatMapRender {
+impl Renderable for ActivityRender {
     fn render(&mut self, actions: &[PxlsPixel], frame: &mut RgbaImage) {
         for action in actions {
             let index = action.x + action.y * self.width;
@@ -429,7 +429,7 @@ impl Renderable for VirginRender {
     }
 }
 
-struct ActivityRender {
+struct HeatRender {
     activity_map: Vec<i64>,
     width: u32,
     height: u32,
@@ -437,9 +437,9 @@ struct ActivityRender {
     i: i64,
 }
 
-impl ActivityRender {
+impl HeatRender {
     fn new(width: u32, height: u32, step: i64) -> Self {
-        Self {
+        HeatRender {
             activity_map: vec![0; width as usize * height as usize],
             width,
             height,
@@ -449,7 +449,7 @@ impl ActivityRender {
     }
 }
 
-impl Renderable for ActivityRender {
+impl Renderable for HeatRender {
     fn render(&mut self, actions: &[PxlsPixel], frame: &mut RgbaImage) {
         for action in actions {
             let index = action.x + action.y * self.width;
