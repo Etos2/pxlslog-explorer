@@ -222,6 +222,12 @@ impl PxlsCommand for Render {
         let stdin = io::stdout();
         let pixels = Self::get_pixels(&self.src)?;
 
+        // TODO: Clobber
+        if settings.noclobber {
+            eprintln!("No clobber is NOT implemented for RENDER!");
+            return Ok(());
+        }
+
         if pixels.len() == 0 {
             return Err(PxlsError::Eof());
         }
