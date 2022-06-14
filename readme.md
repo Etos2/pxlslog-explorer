@@ -50,12 +50,27 @@ The render subcommand accepts a log file and produces frames in the desired form
 A palette can also be provided, either from raw json found [here](https://pxls.space/info) or palette files found [here](https://pxls.space/x/palette) [.gpl, .aco, .csv, .txt (paint.NET)].
 See the [image](https://crates.io/crates/image) crate for supported image formats.
 
+The following styles are supported:
+- Normal:       Simulate pxls canvas
+- Heat:         Simulate pxls heat map 
+- Virgin:       Simulate pxls virgin map 
+- Activity:     Generate a heat map indicating most active pixels
+- Action:       Map pixel type to color (Magenta = Undo, Blue = Place, Cyan = Mod Overwrite, Green = Rollback, Yellow = Rollback undo, Red = Nuke)
+- Milliseconds: Map pixel placement time within a second to a color, smooth regions indicate bot-like behaviour
+- Seconds:      Map pixel placement time within a minute to a color
+- Minutes:      Map pixel placement time within a hour to a color, gradient indicates placement direction
+- Combined:     Above methods combined into one, smooth rainbows indicate bot-like behaviour
+- Age:          Generate a brightness map, where darker pixels are older pixels
+
 ```
 // Using background as source, produce a frame every 5 minutes in the PNG format
 pxlslog-explorer.exe render -s pixels_cXX.sanit.log -d cXX.png --bg cXX.png --step 300000
 
 // Or, produce a single frame
 pxlslog-explorer.exe render -s pixels_cXX.sanit.log -d cXX.png --bg cXX.png --screenshot
+
+// Or, use a different style
+pxlslog-explorer.exe render -s pixels_cXX.sanit.log -d cXX.png --bg cXX.png --screenshot --type virgin
 
 // You can also provide a custom palette.
 pxlslog-explorer.exe render -s pixels_cXX.sanit.log -d cXX.png --bg cXX.png --screenshot --palette p10.gpl
