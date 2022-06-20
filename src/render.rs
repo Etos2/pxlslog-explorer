@@ -3,7 +3,8 @@ use std::fs::OpenOptions;
 use std::io::{self, Write};
 use std::path::Path;
 
-use crate::command::{PxlsCommand, PxlsError, PxlsInput, PxlsResult};
+use crate::error::{PxlsError, PxlsResult};
+use crate::command::PxlsCommand;
 use crate::palette::PaletteParser;
 use crate::pixel::{Pixel as PxlsPixel, PixelKind, PxlsParser}; // TODO: PxlsPixel -> Pixel
 use crate::Cli;
@@ -147,8 +148,8 @@ trait Renderable {
     fn render(&mut self, actions: &[PxlsPixel], frame: &mut RgbaImage);
 }
 
-impl PxlsInput for RenderInput {
-    fn parse(&self, _settings: &Cli) -> PxlsResult<Box<dyn PxlsCommand>> {
+impl RenderInput {
+    pub fn validate(&self, _settings: &Cli) -> PxlsResult<Box<dyn PxlsCommand>> {
         let style = match self.r#type {
             Some(t) => t,
             None => RenderType::Normal,

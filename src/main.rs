@@ -1,10 +1,10 @@
 mod command;
-mod filter;
 mod pixel;
 mod palette;
+mod filter;
 mod render;
+mod error;
 
-use command::PxlsInput;
 use filter::FilterInput;
 use render::RenderInput;
 
@@ -58,8 +58,8 @@ fn main() {
     }
 
     let command = match &cli.input {
-        Input::Filter(filter_input) => filter_input.parse(&cli),
-        Input::Render(render_input) => render_input.parse(&cli),
+        Input::Filter(filter_input) => filter_input.validate(&cli),
+        Input::Render(render_input) => render_input.validate(&cli),
     };
 
     match command {
