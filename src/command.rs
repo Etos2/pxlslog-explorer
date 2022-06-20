@@ -3,10 +3,8 @@ use std::io;
 
 use crate::Cli;
 
-pub trait PxlsInput {
-    fn parse(&self, settings: &Cli) -> PxlsResult<Box<dyn PxlsCommand>>;
-}
-pub trait PxlsCommand {
+pub trait PxlsCommand
+{
     fn run(&self, settings: &Cli) -> PxlsResult<()>;
 }
 

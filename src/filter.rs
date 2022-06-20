@@ -1,7 +1,7 @@
 use std::fs::{self, OpenOptions};
 use std::io::{self, prelude::*};
 
-use crate::command::{PxlsCommand, PxlsInput, PxlsResult};
+use crate::command::{PxlsCommand, PxlsResult};
 use crate::pixel::{PixelKind, PxlsParser};
 use crate::Cli;
 
@@ -81,8 +81,8 @@ pub struct Filter {
     pub actions: Vec<PixelKind>,
 }
 
-impl PxlsInput for FilterInput {
-    fn parse(&self, settings: &Cli) -> PxlsResult<Box<dyn PxlsCommand>> {
+impl FilterInput {
+    pub fn validate(&self, settings: &Cli) -> PxlsResult<Box<dyn PxlsCommand>> {
         let mut hashes = self.hash.to_owned();
         if let Some(src) = &self.hash_src {
             let input = fs::read_to_string(src)?;
