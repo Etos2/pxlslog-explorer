@@ -3,7 +3,8 @@ use std::fs::OpenOptions;
 use std::io::{self, Write};
 use std::path::Path;
 
-use crate::command::{PxlsCommand, PxlsError, PxlsResult};
+use crate::error::{PxlsError, PxlsResult};
+use crate::command::PxlsCommand;
 use crate::palette::PaletteParser;
 use crate::pixel::{Pixel as PxlsPixel, PixelKind, PxlsParser}; // TODO: PxlsPixel -> Pixel
 use crate::Cli;

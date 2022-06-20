@@ -3,7 +3,7 @@ use std::fs::OpenOptions;
 use std::io::Read;
 use std::path::Path;
 
-use crate::command::{PxlsError, PxlsResult};
+use crate::error::{PxlsError, PxlsResult};
 
 use hex::FromHex;
 use serde_json::Value;

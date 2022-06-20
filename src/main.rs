@@ -1,8 +1,9 @@
 mod command;
-mod filter;
 mod pixel;
 mod palette;
+mod filter;
 mod render;
+mod error;
 
 use filter::FilterInput;
 use render::RenderInput;

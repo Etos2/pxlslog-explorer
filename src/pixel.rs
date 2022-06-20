@@ -1,7 +1,7 @@
 use std::io::Read;
 use std::str::FromStr;
 
-use crate::command::{PxlsError, PxlsResult};
+use crate::error::{PxlsError, PxlsResult};
 
 use clap::ArgEnum;
 use rayon::prelude::*;

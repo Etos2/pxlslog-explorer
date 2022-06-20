@@ -1,7 +1,8 @@
 use std::fs::{self, OpenOptions};
 use std::io::{self, prelude::*};
 
-use crate::command::{PxlsCommand, PxlsResult};
+use crate::error::{PxlsError, PxlsResult};
+use crate::command::PxlsCommand;
 use crate::pixel::{PixelKind, PxlsParser};
 use crate::Cli;
 
