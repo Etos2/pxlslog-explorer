@@ -4,6 +4,7 @@ mod palette;
 mod filter;
 mod render;
 mod error;
+mod util;
 
 use filter::FilterInput;
 use render::RenderInput;
@@ -39,6 +40,8 @@ pub enum Input {
 }
 
 fn main() {
+    std::env::set_var("RUST_BACKTRACE", "1");
+
     let cli = Cli::parse();
     let num_threads = match cli.threads {
         Some(threads) => threads,

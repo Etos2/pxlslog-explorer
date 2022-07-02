@@ -3,10 +3,11 @@ use std::fs::OpenOptions;
 use std::io::{self, Write};
 use std::path::Path;
 
-use crate::error::{PxlsError, PxlsResult};
 use crate::command::PxlsCommand;
+use crate::error::{PxlsError, PxlsErrorKind, PxlsResult};
 use crate::palette::PaletteParser;
 use crate::pixel::{Pixel as PxlsPixel, PixelKind, PxlsParser}; // TODO: PxlsPixel -> Pixel
+use crate::util::Region;
 use crate::Cli;
 
 use chrono::NaiveDateTime;
@@ -25,6 +26,7 @@ To output only the final result, use the \"--screenshot\" arg or manually skip t
 #[clap(group = ArgGroup::new("step-qol-conflict").args(&["step", "skip"]).multiple(true).conflicts_with("screenshot"))]
 #[clap(group = ArgGroup::new("bg-qol").args(&["color", "size", "bg"]).multiple(true))]
 #[clap(group = ArgGroup::new("bg-qol-conflict").args(&["color", "size"]).multiple(true).conflicts_with("bg"))]
+#[clap(group = ArgGroup::new("size-qol").args(&["crop", "size"]).required(true).multiple(true))]
 pub struct RenderInput {
     #[clap(short, long)]
     #[clap(value_name("PATH"))]
@@ -82,6 +84,12 @@ pub struct RenderInput {
     #[clap(help = "Color of background")]
     #[clap(long_help = "Color of background (RGBA value)")]
     color: Option<Vec<u8>>,
+    #[clap(long)]
+    #[clap(max_values(4))]
+    #[clap(value_name("INT"))]
+    #[clap(help = "Region to save")]
+    #[clap(long_help = "Region to save (x1, y1, x2, y2)")]
+    crop: Vec<u32>,
 }
 
 // TODO: Clean
@@ -128,6 +136,7 @@ pub struct Render {
     step: i64,
     skip: usize,
     palette: Vec<[u8; 4]>,
+    crop: Region<u32>,
 }
 
 #[derive(Debug, Copy, Clone, ArgEnum)]
@@ -150,39 +159,45 @@ trait Renderable {
 
 impl RenderInput {
     pub fn validate(&self, _settings: &Cli) -> PxlsResult<Box<dyn PxlsCommand>> {
+        let crop = Region::new_from_slice(&self.crop);
         let style = match self.r#type {
             Some(t) => t,
             None => RenderType::Normal,
         };
 
-        let pixels = Render::get_pixels(&self.src)?;
-
-        let size = match &self.size {
-            Some(size) => (size[0], size[1]),
-            None => {
-                let mut size = (0, 0);
-                for pixel in &pixels {
-                    if pixel.x + 1 > size.0 {
-                        size.0 = pixel.x + 1;
-                    }
-                    if pixel.y + 1 > size.1 {
-                        size.1 = pixel.y + 1;
-                    }
-                }
-                size
-            }
-        };
-
         let background = match &self.bg {
-            Some(path) => ImageReader::open(path)?.decode()?.to_rgba8(),
-            None => ImageBuffer::from_pixel(
-                size.0,
-                size.1,
-                match &self.color {
-                    Some(color) => image::Rgba::from_slice(&color).to_owned(),
-                    None => image::Rgba::from([0, 0, 0, 0]),
-                },
-            ),
+            Some(path) => {
+                let x = crop.start().0;
+                let y = crop.start().1;
+                let width = crop.width();
+                let height = crop.height();
+                ImageReader::open(path)?
+                    .decode()?
+                    .crop(x, y, width, height)
+                    .to_rgba8()
+            }
+            None => {
+                let size = match &self.size {
+                    Some(size) => (size[0], size[1]),
+                    None => match &self.crop.len() {
+                        4 => (crop.width(), crop.height()),
+                        _ => {
+                            return Err(PxlsError::new(PxlsErrorKind::InvalidState(
+                                "cannot infer size from crop without width and height".to_string(),
+                            )));
+                        }
+                    },
+                };
+
+                ImageBuffer::from_pixel(
+                    size.0,
+                    size.1,
+                    match &self.color {
+                        Some(color) => image::Rgba::from_slice(&color).to_owned(),
+                        None => image::Rgba::from([0, 0, 0, 0]),
+                    },
+                )
+            }
         };
 
         let step = match self.step {
@@ -214,23 +229,27 @@ impl RenderInput {
             step,
             skip,
             palette,
+            crop,
         }))
     }
 }
 
 impl PxlsCommand for Render {
     fn run(&self, settings: &Cli) -> PxlsResult<()> {
-        let stdin = io::stdout();
-        let pixels = Self::get_pixels(&self.src)?;
+        let stdout = io::stdout();
+        let pixels = Self::get_pixels(&self.src, &self.crop)?;
+
+        if pixels.len() == 0 {
+            return Err(PxlsError::new(PxlsErrorKind::InvalidState(
+                "No pixels found in region!".to_string(),
+            )));
+        }
 
         // TODO: Clobber
         if settings.noclobber {
-            eprintln!("No clobber is NOT implemented for RENDER!");
-            return Ok(());
-        }
-
-        if pixels.len() == 0 {
-            return Err(PxlsError::Eof());
+            return Err(PxlsError::new(PxlsErrorKind::InvalidState(
+                "No clobber is NOT implemented for RENDER! Yet...".to_string(),
+            )));
         }
 
         let frames = Self::get_frame_slices(&pixels, self.step);
@@ -239,7 +258,7 @@ impl PxlsCommand for Render {
         let height = current.height();
 
         if settings.verbose {
-            println!("Rendering {} frames", frames.len());
+            eprintln!("Rendering {} frames", frames.len());
         }
 
         let mut renderer: Box<dyn Renderable> = match self.style {
@@ -275,7 +294,7 @@ impl PxlsCommand for Render {
 
             match &self.dst {
                 Some(path) => Self::frame_to_file(&current, &path, i)?,
-                None => Self::frame_to_raw(&current, &mut stdin.lock())?,
+                None => Self::frame_to_raw(&current, &mut stdout.lock())?,
             }
         }
 
@@ -289,10 +308,15 @@ impl Render {
         let ext = Path::new(path)
             .extension()
             .and_then(OsStr::to_str)
-            .ok_or(PxlsError::Unsupported())?;
+            .ok_or(PxlsError::new_with_file(PxlsErrorKind::Unsupported(), path))?;
+
         let mut dst = path.to_owned();
         dst.truncate(dst.len() - ext.len() - 1);
-        frame.save(format!("{}_{}.{}", dst, i, ext))?;
+
+        frame
+            .save(format!("{}_{}.{}", dst, i, ext))
+            .map_err(|e| PxlsError::from(e, &path))?;
+
         Ok(())
     }
 
@@ -304,18 +328,27 @@ impl Render {
     }
 
     // TODO: External io
-    fn get_pixels(path: &str) -> PxlsResult<Vec<PxlsPixel>> {
+    fn get_pixels(path: &str, region: &Region<u32>) -> PxlsResult<Vec<PxlsPixel>> {
         PxlsParser::parse(
             &mut OpenOptions::new().read(true).open(path)?,
-            |s: &[&str]| -> PxlsResult<PxlsPixel> {
-                Ok(PxlsPixel {
-                    x: s[2].parse()?,
-                    y: s[3].parse()?,
-                    index: s[4].parse()?,
-                    timestamp: NaiveDateTime::parse_from_str(s[0], "%Y-%m-%d %H:%M:%S,%3f")?
-                        .timestamp_millis(),
-                    kind: s[5].parse()?,
-                })
+            move |s: &[&str]| -> PxlsResult<Option<PxlsPixel>> {
+                let x = s[2].parse().map_err(|e| PxlsError::from(e, path))?;
+                let y = s[3].parse().map_err(|e| PxlsError::from(e, path))?;
+                let offset = region.start();
+
+                if region.contains(x, y) {
+                    Ok(Some(PxlsPixel {
+                        x: x - offset.0,
+                        y: y - offset.1,
+                        index: s[4].parse().map_err(|e| PxlsError::from(e, path))?,
+                        timestamp: NaiveDateTime::parse_from_str(s[0], "%Y-%m-%d %H:%M:%S,%3f")
+                            .map_err(|e| PxlsError::from(e, path))?
+                            .timestamp_millis(),
+                        kind: s[5].parse().map_err(|e| PxlsError::from(e, path))?,
+                    }))
+                } else {
+                    Ok(None)
+                }
             },
         )
     }

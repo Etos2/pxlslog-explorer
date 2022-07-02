@@ -1,7 +1,7 @@
 use std::io::Read;
 use std::str::FromStr;
 
-use crate::error::{PxlsError, PxlsResult};
+use crate::error::{PxlsError, PxlsErrorKind, PxlsResult};
 
 use clap::ArgEnum;
 use rayon::prelude::*;
@@ -37,7 +37,7 @@ impl FromStr for PixelKind {
             "rollback" => Ok(PixelKind::Rollback),
             "rollback undo" => Ok(PixelKind::RollbackUndo),
             "console nuke" => Ok(PixelKind::Nuke),
-            _ => Err(PxlsError::BadToken(s.to_string())),
+            _ => Err(PxlsError::new(PxlsErrorKind::BadToken(s.to_string()))),
         }
     }
 }
@@ -57,10 +57,11 @@ impl PxlsParser {
             .collect())
     }
 
-    pub fn parse<R, T>(input: &mut R, parser: fn(&[&str]) -> PxlsResult<T>) -> PxlsResult<Vec<T>>
+    pub fn parse<R, T, F>(input: &mut R, parser: F) -> PxlsResult<Vec<T>>
     where
         R: Read,
         T: Send,
+        F: Fn(&[&str]) -> PxlsResult<Option<T>> + Sync + Send,
     {
         let mut buffer = String::new();
         input.read_to_string(&mut buffer)?;
@@ -72,7 +73,7 @@ impl PxlsParser {
             .collect::<Vec<_>>();
 
         temp.par_chunks_exact(6)
-            .map(|s| parser(s))
-            .collect::<PxlsResult<Vec<T>>>()
+            .filter_map(|s| parser(s).transpose())
+            .collect()
     }
 }
