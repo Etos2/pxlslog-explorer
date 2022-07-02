@@ -57,10 +57,11 @@ impl PxlsParser {
             .collect())
     }
 
-    pub fn parse<R, T>(input: &mut R, parser: fn(&[&str]) -> PxlsResult<T>) -> PxlsResult<Vec<T>>
+    pub fn parse<R, T, F>(input: &mut R, parser: F) -> PxlsResult<Vec<T>>
     where
         R: Read,
         T: Send,
+        F: Fn(&[&str]) -> PxlsResult<Option<T>> + Sync + Send,
     {
         let mut buffer = String::new();
         input.read_to_string(&mut buffer)?;
@@ -72,7 +73,7 @@ impl PxlsParser {
             .collect::<Vec<_>>();
 
         temp.par_chunks_exact(6)
-            .map(|s| parser(s))
-            .collect::<PxlsResult<Vec<T>>>()
+            .filter_map(|s| parser(s).transpose())
+            .collect()
     }
 }

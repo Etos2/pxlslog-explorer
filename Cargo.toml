@@ -5,10 +5,11 @@ edition = "2021"
 
 [dependencies]
 chrono = "0.4.19"
-clap = { version = "3.1.6", features  = ["derive","std","suggestions"], default-features = false }
-hex = "0.4"
-image = "0.24.1"
-num_cpus = "1.0"
-rayon = "1.5"
-serde_json = "1.0"
-sha2 = "0.10"
+clap = { version = "3.1.18", features = ["derive","std","suggestions"], default-features = false }
+hex = "0.4.3"
+image = "0.24.2"
+num_cpus = "1.13.1"
+num-traits = "0.2.15"
+rayon = "1.5.3"
+serde_json = "1.0.81"
+sha2 = "0.10.2"

@@ -3,10 +3,11 @@ use std::fs::OpenOptions;
 use std::io::{self, Write};
 use std::path::Path;
 
-use crate::error::{PxlsError, PxlsResult};
 use crate::command::PxlsCommand;
+use crate::error::{PxlsError, PxlsResult};
 use crate::palette::PaletteParser;
 use crate::pixel::{Pixel as PxlsPixel, PixelKind, PxlsParser}; // TODO: PxlsPixel -> Pixel
+use crate::util::Region;
 use crate::Cli;
 
 use chrono::NaiveDateTime;
@@ -82,6 +83,12 @@ pub struct RenderInput {
     #[clap(help = "Color of background")]
     #[clap(long_help = "Color of background (RGBA value)")]
     color: Option<Vec<u8>>,
+    #[clap(long)]
+    #[clap(max_values(4))]
+    #[clap(value_name("INT"))]
+    #[clap(help = "Region to save")]
+    #[clap(long_help = "Region to save (x1, y1, x2, y2)")]
+    crop: Vec<u32>,
 }
 
 // TODO: Clean
@@ -128,6 +135,7 @@ pub struct Render {
     step: i64,
     skip: usize,
     palette: Vec<[u8; 4]>,
+    crop: Region<u32>,
 }
 
 #[derive(Debug, Copy, Clone, ArgEnum)]
@@ -155,7 +163,8 @@ impl RenderInput {
             None => RenderType::Normal,
         };
 
-        let pixels = Render::get_pixels(&self.src)?;
+        let crop = Region::new_from_slice(&self.crop);
+        let pixels = Render::get_pixels(&self.src, &crop)?; // TODO: Improve, call once
 
         let size = match &self.size {
             Some(size) => (size[0], size[1]),
@@ -174,7 +183,13 @@ impl RenderInput {
         };
 
         let background = match &self.bg {
-            Some(path) => ImageReader::open(path)?.decode()?.to_rgba8(),
+            Some(path) => {
+                let x = crop.top_left().0;
+                let y = crop.top_left().1;
+                let width = crop.width();
+                let height = crop.height();
+                ImageReader::open(path)?.decode()?.crop(x, y, width, height).to_rgba8()
+            },
             None => ImageBuffer::from_pixel(
                 size.0,
                 size.1,
@@ -214,23 +229,25 @@ impl RenderInput {
             step,
             skip,
             palette,
+            crop,
         }))
     }
 }
 
 impl PxlsCommand for Render {
     fn run(&self, settings: &Cli) -> PxlsResult<()> {
-        let stdin = io::stdout();
-        let pixels = Self::get_pixels(&self.src)?;
+        let stdout = io::stdout();
+        let pixels = Self::get_pixels(&self.src, &self.crop)?;
+
+        if pixels.len() == 0 {
+            eprintln!("No pixels found in region!");
+            return Ok(());
+        }
 
         // TODO: Clobber
         if settings.noclobber {
             eprintln!("No clobber is NOT implemented for RENDER!");
             return Ok(());
-        }
-
-        if pixels.len() == 0 {
-            return Err(PxlsError::Eof());
         }
 
         let frames = Self::get_frame_slices(&pixels, self.step);
@@ -275,7 +292,7 @@ impl PxlsCommand for Render {
 
             match &self.dst {
                 Some(path) => Self::frame_to_file(&current, &path, i)?,
-                None => Self::frame_to_raw(&current, &mut stdin.lock())?,
+                None => Self::frame_to_raw(&current, &mut stdout.lock())?,
             }
         }
 
@@ -304,18 +321,26 @@ impl Render {
     }
 
     // TODO: External io
-    fn get_pixels(path: &str) -> PxlsResult<Vec<PxlsPixel>> {
+    fn get_pixels(path: &str, region: &Region<u32>) -> PxlsResult<Vec<PxlsPixel>> {
         PxlsParser::parse(
             &mut OpenOptions::new().read(true).open(path)?,
-            |s: &[&str]| -> PxlsResult<PxlsPixel> {
-                Ok(PxlsPixel {
-                    x: s[2].parse()?,
-                    y: s[3].parse()?,
-                    index: s[4].parse()?,
-                    timestamp: NaiveDateTime::parse_from_str(s[0], "%Y-%m-%d %H:%M:%S,%3f")?
-                        .timestamp_millis(),
-                    kind: s[5].parse()?,
-                })
+            move |s: &[&str]| -> PxlsResult<Option<PxlsPixel>> {
+                let x = s[2].parse()?;
+                let y = s[3].parse()?;
+                let offset = region.top_left();
+
+                if region.contains(x, y) {
+                    Ok(Some(PxlsPixel {
+                        x: x - offset.0,
+                        y: y - offset.1,
+                        index: s[4].parse()?,
+                        timestamp: NaiveDateTime::parse_from_str(s[0], "%Y-%m-%d %H:%M:%S,%3f")?
+                            .timestamp_millis(),
+                        kind: s[5].parse()?,
+                    }))
+                } else {
+                    Ok(None)
+                }
             },
         )
     }
