@@ -4,7 +4,7 @@ use std::io::{self, Write};
 use std::path::Path;
 
 use crate::command::PxlsCommand;
-use crate::error::{PxlsError, PxlsResult};
+use crate::error::{PxlsError, PxlsErrorKind, PxlsResult};
 use crate::palette::PaletteParser;
 use crate::pixel::{Pixel as PxlsPixel, PixelKind, PxlsParser}; // TODO: PxlsPixel -> Pixel
 use crate::util::Region;
@@ -182,8 +182,9 @@ impl RenderInput {
                     None => match &self.crop.len() {
                         4 => (crop.width(), crop.height()),
                         _ => {
-                            eprintln!("Cannot infer size from crop without width and height");
-                            return Err(PxlsError::Unsupported());
+                            return Err(PxlsError::new(PxlsErrorKind::InvalidState(
+                                "cannot infer size from crop without width and height".to_string(),
+                            )));
                         }
                     },
                 };
@@ -239,14 +240,16 @@ impl PxlsCommand for Render {
         let pixels = Self::get_pixels(&self.src, &self.crop)?;
 
         if pixels.len() == 0 {
-            eprintln!("No pixels found in region!");
-            return Ok(());
+            return Err(PxlsError::new(PxlsErrorKind::InvalidState(
+                "No pixels found in region!".to_string(),
+            )));
         }
 
         // TODO: Clobber
         if settings.noclobber {
-            eprintln!("No clobber is NOT implemented for RENDER!");
-            return Ok(());
+            return Err(PxlsError::new(PxlsErrorKind::InvalidState(
+                "No clobber is NOT implemented for RENDER! Yet...".to_string(),
+            )));
         }
 
         let frames = Self::get_frame_slices(&pixels, self.step);
@@ -255,7 +258,7 @@ impl PxlsCommand for Render {
         let height = current.height();
 
         if settings.verbose {
-            println!("Rendering {} frames", frames.len());
+            eprintln!("Rendering {} frames", frames.len());
         }
 
         let mut renderer: Box<dyn Renderable> = match self.style {
@@ -305,10 +308,15 @@ impl Render {
         let ext = Path::new(path)
             .extension()
             .and_then(OsStr::to_str)
-            .ok_or(PxlsError::Unsupported())?;
+            .ok_or(PxlsError::new_with_file(PxlsErrorKind::Unsupported(), path))?;
+
         let mut dst = path.to_owned();
         dst.truncate(dst.len() - ext.len() - 1);
-        frame.save(format!("{}_{}.{}", dst, i, ext))?;
+
+        frame
+            .save(format!("{}_{}.{}", dst, i, ext))
+            .map_err(|e| PxlsError::from(e, &path))?;
+
         Ok(())
     }
 
@@ -324,18 +332,19 @@ impl Render {
         PxlsParser::parse(
             &mut OpenOptions::new().read(true).open(path)?,
             move |s: &[&str]| -> PxlsResult<Option<PxlsPixel>> {
-                let x = s[2].parse()?;
-                let y = s[3].parse()?;
+                let x = s[2].parse().map_err(|e| PxlsError::from(e, path))?;
+                let y = s[3].parse().map_err(|e| PxlsError::from(e, path))?;
                 let offset = region.start();
 
                 if region.contains(x, y) {
                     Ok(Some(PxlsPixel {
                         x: x - offset.0,
                         y: y - offset.1,
-                        index: s[4].parse()?,
-                        timestamp: NaiveDateTime::parse_from_str(s[0], "%Y-%m-%d %H:%M:%S,%3f")?
+                        index: s[4].parse().map_err(|e| PxlsError::from(e, path))?,
+                        timestamp: NaiveDateTime::parse_from_str(s[0], "%Y-%m-%d %H:%M:%S,%3f")
+                            .map_err(|e| PxlsError::from(e, path))?
                             .timestamp_millis(),
-                        kind: s[5].parse()?,
+                        kind: s[5].parse().map_err(|e| PxlsError::from(e, path))?,
                     }))
                 } else {
                     Ok(None)

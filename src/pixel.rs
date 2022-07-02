@@ -1,7 +1,7 @@
 use std::io::Read;
 use std::str::FromStr;
 
-use crate::error::{PxlsError, PxlsResult};
+use crate::error::{PxlsError, PxlsErrorKind, PxlsResult};
 
 use clap::ArgEnum;
 use rayon::prelude::*;
@@ -37,7 +37,7 @@ impl FromStr for PixelKind {
             "rollback" => Ok(PixelKind::Rollback),
             "rollback undo" => Ok(PixelKind::RollbackUndo),
             "console nuke" => Ok(PixelKind::Nuke),
-            _ => Err(PxlsError::BadToken(s.to_string())),
+            _ => Err(PxlsError::new(PxlsErrorKind::BadToken(s.to_string()))),
         }
     }
 }
