@@ -26,6 +26,7 @@ To output only the final result, use the \"--screenshot\" arg or manually skip t
 #[clap(group = ArgGroup::new("step-qol-conflict").args(&["step", "skip"]).multiple(true).conflicts_with("screenshot"))]
 #[clap(group = ArgGroup::new("bg-qol").args(&["color", "size", "bg"]).multiple(true))]
 #[clap(group = ArgGroup::new("bg-qol-conflict").args(&["color", "size"]).multiple(true).conflicts_with("bg"))]
+#[clap(group = ArgGroup::new("size-qol").args(&["crop", "size"]).required(true).multiple(true))]
 pub struct RenderInput {
     #[clap(short, long)]
     #[clap(value_name("PATH"))]
@@ -158,46 +159,44 @@ trait Renderable {
 
 impl RenderInput {
     pub fn validate(&self, _settings: &Cli) -> PxlsResult<Box<dyn PxlsCommand>> {
+        let crop = Region::new_from_slice(&self.crop);
         let style = match self.r#type {
             Some(t) => t,
             None => RenderType::Normal,
         };
 
-        let crop = Region::new_from_slice(&self.crop);
-        let pixels = Render::get_pixels(&self.src, &crop)?; // TODO: Improve, call once
-
-        let size = match &self.size {
-            Some(size) => (size[0], size[1]),
-            None => {
-                let mut size = (0, 0);
-                for pixel in &pixels {
-                    if pixel.x + 1 > size.0 {
-                        size.0 = pixel.x + 1;
-                    }
-                    if pixel.y + 1 > size.1 {
-                        size.1 = pixel.y + 1;
-                    }
-                }
-                size
-            }
-        };
-
         let background = match &self.bg {
             Some(path) => {
-                let x = crop.top_left().0;
-                let y = crop.top_left().1;
+                let x = crop.start().0;
+                let y = crop.start().1;
                 let width = crop.width();
                 let height = crop.height();
-                ImageReader::open(path)?.decode()?.crop(x, y, width, height).to_rgba8()
-            },
-            None => ImageBuffer::from_pixel(
-                size.0,
-                size.1,
-                match &self.color {
-                    Some(color) => image::Rgba::from_slice(&color).to_owned(),
-                    None => image::Rgba::from([0, 0, 0, 0]),
-                },
-            ),
+                ImageReader::open(path)?
+                    .decode()?
+                    .crop(x, y, width, height)
+                    .to_rgba8()
+            }
+            None => {
+                let size = match &self.size {
+                    Some(size) => (size[0], size[1]),
+                    None => match &self.crop.len() {
+                        4 => (crop.width(), crop.height()),
+                        _ => {
+                            eprintln!("Cannot infer size from crop without width and height");
+                            return Err(PxlsError::Unsupported());
+                        }
+                    },
+                };
+
+                ImageBuffer::from_pixel(
+                    size.0,
+                    size.1,
+                    match &self.color {
+                        Some(color) => image::Rgba::from_slice(&color).to_owned(),
+                        None => image::Rgba::from([0, 0, 0, 0]),
+                    },
+                )
+            }
         };
 
         let step = match self.step {
@@ -327,7 +326,7 @@ impl Render {
             move |s: &[&str]| -> PxlsResult<Option<PxlsPixel>> {
                 let x = s[2].parse()?;
                 let y = s[3].parse()?;
-                let offset = region.top_left();
+                let offset = region.start();
 
                 if region.contains(x, y) {
                     Ok(Some(PxlsPixel {
