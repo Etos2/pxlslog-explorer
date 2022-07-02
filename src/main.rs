@@ -40,8 +40,6 @@ pub enum Input {
 }
 
 fn main() {
-    std::env::set_var("RUST_BACKTRACE", "1");
-
     let cli = Cli::parse();
     let num_threads = match cli.threads {
         Some(threads) => threads,
@@ -54,9 +52,9 @@ fn main() {
         .unwrap();
 
     if cli.verbose {
-        println!("Running with {} threads", num_threads);
+        eprintln!("Running with {} threads", num_threads);
         if cli.noclobber {
-            println!("Preserving output files");
+            eprintln!("Preserving output files");
         }
     }
 
@@ -69,11 +67,11 @@ fn main() {
         Ok(c) => match c.run(&cli) {
             Ok(_) => {
                 if cli.verbose {
-                    println!("Executed successfully!")
+                    eprintln!("Executed successfully!")
                 }
             },
-            Err(e) => eprintln!("Failed: {}", e),
+            Err(e) => eprintln!("{}", e),
         },
-        Err(e) => eprintln!("Invalid configuration: {}", e),
+        Err(e) => eprintln!("{}", e),
     };
 }
