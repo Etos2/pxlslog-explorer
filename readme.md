@@ -18,6 +18,7 @@ Forgot where the logs are? They're right [here](https://pxls.space/x/logs/). You
   - Can pipe raw RGBA video data (e.g. ffmpeg)
   - Supports multiple styles (e.g. heat, virgin, activity, etc)
   - Can import custom palettes (.gpl, .aco, .csv, .txt (paint.NET)) including directly from [pxls](https://pxls.space/info)
+  - Crop to specified size
 
 ## Help
 To get on track, seek the help argument.
@@ -74,12 +75,15 @@ pxlslog-explorer.exe render -s pixels_cXX.sanit.log -d cXX.png --bg cXX.png --sc
 
 // You can also provide a custom palette.
 pxlslog-explorer.exe render -s pixels_cXX.sanit.log -d cXX.png --bg cXX.png --screenshot --palette p10.gpl
+
+// Additionally, crop frames without needing to modify logs or other shenanigans
+pxlslog-explorer.exe render -s pixels_cXX.sanit.log -d cXX.png --bg cXX.png --screenshot --crop x y width height
 ```
 
 Additionally, frames can be piped to other programs via STDOUT to produce a video. This has only been tested with ffmpeg.
 (Note that you need to specify the resolution)
 ```
-pxlslog-explorer.exe render -s pixels_cXX.sanit.log --bg cXX.png --step 300000 | ffmpeg -f rawvideo -pixel_format rgba -video_size [...] -i pipe:0 ...
+pxlslog-explorer.exe render -s pixels_cXX.sanit.log --bg cXX.png --step 300000 | ffmpeg -f rawvideo -pixel_format rgba -video_size widthxheight -i pipe:0 ...
 ```
 
 ## The future
