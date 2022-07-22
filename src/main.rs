@@ -1,9 +1,8 @@
-mod command;
-mod pixel;
-mod palette;
-mod filter;
-mod render;
 mod error;
+mod filter;
+mod palette;
+mod pixel;
+mod render;
 mod util;
 
 use filter::FilterInput;
@@ -59,19 +58,19 @@ fn main() {
     }
 
     let command = match &cli.input {
-        Input::Filter(filter_input) => filter_input.validate(&cli),
-        Input::Render(render_input) => render_input.validate(&cli),
+        Input::Filter(filter_input) => filter_input.run(&cli),
+        Input::Render(render_input) => render_input.run(&cli),
     };
 
     match command {
-        Ok(c) => match c.run(&cli) {
-            Ok(_) => {
-                if cli.verbose {
-                    eprintln!("Executed successfully!")
-                }
-            },
-            Err(e) => eprintln!("{}", e),
-        },
-        Err(e) => eprintln!("{}", e),
+        Ok(_) => {
+            if cli.verbose {
+                eprintln!("Executed successfully!")
+            }
+        }
+        Err(e) => {
+            eprintln!("{}", e);
+            std::process::exit(1);
+        }
     };
 }

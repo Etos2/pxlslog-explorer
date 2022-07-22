@@ -3,7 +3,6 @@ use std::fs::OpenOptions;
 use std::io::{self, Write};
 use std::path::Path;
 
-use crate::command::PxlsCommand;
 use crate::error::{PxlsError, PxlsErrorKind, PxlsResult};
 use crate::palette::PaletteParser;
 use crate::pixel::{Pixel as PxlsPixel, PixelKind, PxlsParser}; // TODO: PxlsPixel -> Pixel
@@ -24,9 +23,8 @@ To output only the final result, use the \"--screenshot\" arg or manually skip t
 )]
 #[clap(group = ArgGroup::new("step-qol").args(&["step", "skip", "screenshot"]).required(true).multiple(true))]
 #[clap(group = ArgGroup::new("step-qol-conflict").args(&["step", "skip"]).multiple(true).conflicts_with("screenshot"))]
-#[clap(group = ArgGroup::new("bg-qol").args(&["color", "size", "bg"]).multiple(true))]
+#[clap(group = ArgGroup::new("bg-qol").args(&["color", "size", "bg"]).required(true).multiple(true))]
 #[clap(group = ArgGroup::new("bg-qol-conflict").args(&["color", "size"]).multiple(true).conflicts_with("bg"))]
-#[clap(group = ArgGroup::new("size-qol").args(&["crop", "size"]).required(true).multiple(true))]
 pub struct RenderInput {
     #[clap(short, long)]
     #[clap(value_name("PATH"))]
@@ -53,7 +51,7 @@ pub struct RenderInput {
     #[clap(long, arg_enum)]
     #[clap(value_name("ENUM"))]
     #[clap(help = "Type of render")]
-    r#type: Option<RenderType>,
+    style: Option<RenderType>,
     #[clap(long)]
     #[clap(value_name("LONG"))]
     #[clap(help = "Time between frames (0 is max)")]
@@ -128,16 +126,16 @@ const PALETTE: [[u8; 4]; 32] = [
     [116, 12, 0, 255],    // Maroon
 ];
 
-pub struct Render {
-    src: String,
-    dst: Option<String>,
-    background: RgbaImage,
-    style: RenderType,
-    step: i64,
-    skip: usize,
-    palette: Vec<[u8; 4]>,
-    crop: Region<u32>,
-}
+// pub struct Render {
+//     src: String,
+//     dst: Option<String>,
+//     background: RgbaImage,
+//     style: RenderType,
+//     step: i64,
+//     skip: usize,
+//     palette: Vec<[u8; 4]>,
+//     crop: Region<u32>,
+// }
 
 #[derive(Debug, Copy, Clone, ArgEnum)]
 enum RenderType {
@@ -153,51 +151,57 @@ enum RenderType {
     Age,
 }
 
+impl Default for RenderType {
+    fn default() -> Self {
+        RenderType::Normal
+    }
+}
+
 trait Renderable {
     fn render(&mut self, actions: &[PxlsPixel], frame: &mut RgbaImage);
 }
 
 impl RenderInput {
-    pub fn validate(&self, _settings: &Cli) -> PxlsResult<Box<dyn PxlsCommand>> {
-        let crop = Region::new_from_slice(&self.crop);
-        let style = match self.r#type {
-            Some(t) => t,
-            None => RenderType::Normal,
-        };
-
-        let background = match &self.bg {
+    fn get_background(&self, crop: &Region<u32>) -> PxlsResult<RgbaImage> {
+        match &self.bg {
             Some(path) => {
                 let x = crop.start().0;
                 let y = crop.start().1;
                 let width = crop.width();
                 let height = crop.height();
-                ImageReader::open(path)?
+                Ok(ImageReader::open(path)?
                     .decode()?
                     .crop(x, y, width, height)
-                    .to_rgba8()
+                    .to_rgba8())
             }
             None => {
                 let size = match &self.size {
                     Some(size) => (size[0], size[1]),
-                    None => match &self.crop.len() {
-                        4 => (crop.width(), crop.height()),
-                        _ => {
-                            return Err(PxlsError::new(PxlsErrorKind::InvalidState(
-                                "cannot infer size from crop without width and height".to_string(),
-                            )));
-                        }
-                    },
+                    None => return Err(PxlsError::new(PxlsErrorKind::InvalidState("cannot infer size from crop without width and height".to_string()))),
                 };
 
-                ImageBuffer::from_pixel(
+                Ok(ImageBuffer::from_pixel(
                     size.0,
                     size.1,
                     match &self.color {
                         Some(color) => image::Rgba::from_slice(&color).to_owned(),
                         None => image::Rgba::from([0, 0, 0, 0]),
                     },
-                )
+                ))
             }
+        }
+    }
+
+    pub fn run(&self, settings: &Cli) -> PxlsResult<()> {
+        let stdout = io::stdout();
+        let crop = Region::new_from_slice(&self.crop).unwrap_or(Region::all());
+        let style = self.style.unwrap_or_default();
+        let pixels = Self::get_pixels(&self.src, &crop)?;
+        let background = Self::get_background(&self, &crop)?;
+
+        let palette = match &self.palette {
+            Some(path) => PaletteParser::try_parse(&path)?,
+            None => PALETTE.to_vec(),
         };
 
         let step = match self.step {
@@ -216,29 +220,6 @@ impl RenderInput {
             skip = 1;
         }
 
-        let palette = match &self.palette {
-            Some(path) => PaletteParser::try_parse(&path)?,
-            None => PALETTE.to_vec(),
-        };
-
-        Ok(Box::new(Render {
-            src: self.src.to_owned(),
-            dst: self.dst.clone(),
-            background,
-            style,
-            step,
-            skip,
-            palette,
-            crop,
-        }))
-    }
-}
-
-impl PxlsCommand for Render {
-    fn run(&self, settings: &Cli) -> PxlsResult<()> {
-        let stdout = io::stdout();
-        let pixels = Self::get_pixels(&self.src, &self.crop)?;
-
         if pixels.len() == 0 {
             return Err(PxlsError::new(PxlsErrorKind::InvalidState(
                 "No pixels found in region!".to_string(),
@@ -252,8 +233,8 @@ impl PxlsCommand for Render {
             )));
         }
 
-        let frames = Self::get_frame_slices(&pixels, self.step);
-        let mut current = self.background.clone();
+        let frames = Self::get_frame_slices(&pixels, step);
+        let mut current = background.clone();
         let width = current.width();
         let height = current.height();
 
@@ -261,10 +242,10 @@ impl PxlsCommand for Render {
             eprintln!("Rendering {} frames", frames.len());
         }
 
-        let mut renderer: Box<dyn Renderable> = match self.style {
-            RenderType::Normal => Box::new(NormalRender::new(&self.background, &self.palette)),
+        let mut renderer: Box<dyn Renderable> = match style {
+            RenderType::Normal => Box::new(NormalRender::new(&background, &palette)),
             RenderType::Activity => Box::new(ActivityRender::new(width, height)),
-            RenderType::Heat => Box::new(HeatRender::new(width, height, self.step)),
+            RenderType::Heat => Box::new(HeatRender::new(width, height, step)),
             RenderType::Virgin => Box::new(VirginRender {}),
             RenderType::Action => Box::new(ActionRender {}),
             RenderType::Combined => Box::new(CombinedRender {}),
@@ -288,7 +269,7 @@ impl PxlsCommand for Render {
             }
         };
 
-        for (i, frame) in frames[self.skip..].iter().enumerate() {
+        for (i, frame) in frames[skip..].iter().enumerate() {
             current = current.clone();
             renderer.render(frame, &mut current);
 
@@ -300,9 +281,7 @@ impl PxlsCommand for Render {
 
         Ok(())
     }
-}
 
-impl Render {
     // TODO: Error handling
     fn frame_to_file(frame: &RgbaImage, path: &str, i: usize) -> PxlsResult<()> {
         let ext = Path::new(path)

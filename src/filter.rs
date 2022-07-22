@@ -1,9 +1,9 @@
 use std::fs::{self, OpenOptions};
 use std::io::{self, prelude::*};
 
-use crate::error::PxlsResult;
-use crate::command::PxlsCommand;
+use crate::error::{PxlsError, PxlsResult};
 use crate::pixel::{PixelKind, PxlsParser};
+use crate::util::Region;
 use crate::Cli;
 
 use chrono::NaiveDateTime;
@@ -71,35 +71,10 @@ pub struct FilterInput {
     action: Vec<PixelKind>,
 }
 
-pub struct Filter {
-    pub src: Option<String>,
-    pub dst: Option<String>,
-    pub after: Option<NaiveDateTime>,
-    pub before: Option<NaiveDateTime>,
-    pub colors: Vec<i32>,
-    pub region: Option<[i32; 4]>,
-    pub hashes: Vec<String>,
-    pub actions: Vec<PixelKind>,
-}
-
 impl FilterInput {
-    pub fn validate(&self, settings: &Cli) -> PxlsResult<Box<dyn PxlsCommand>> {
-        let mut hashes = self.hash.to_owned();
-        if let Some(src) = &self.hash_src {
-            let input = fs::read_to_string(src)?;
-            let lines: Vec<&str> = input
-                .split_whitespace()
-                .filter(|&x| !x.is_empty())
-                .collect();
-
-            for (i, line) in lines.iter().enumerate() {
-                if line.len() == 512 {
-                    hashes.push(line.to_string());
-                } else if settings.verbose {
-                    eprintln!("Invalid hash at line {}! Ignoring...", i);
-                }
-            }
-        }
+    pub fn run(&self, settings: &Cli) -> PxlsResult<()> {
+        let hashes = self.get_hash(settings.verbose);
+        let region = Region::new_from_slice(&self.region);
 
         let dst = if self.modify && self.src.is_some() {
             self.src.clone()
@@ -107,96 +82,36 @@ impl FilterInput {
             self.dst.clone()
         };
 
-        let region = match self.region.len() {
-            0 => None,
-            1 => Some([self.region[0], 0, i32::MAX, i32::MAX]),
-            2 => Some([self.region[0], self.region[1], i32::MAX, i32::MAX]),
-            3 => Some([self.region[0], self.region[1], self.region[2], i32::MAX]),
-            4 => Some([
-                self.region[0],
-                self.region[1],
-                self.region[2],
-                self.region[3],
-            ]),
-            _ => unreachable!(),
+        let mut buffer = String::new();
+        let mut tokens = match &self.src {
+            Some(s) => {
+                PxlsParser::parse_raw(&mut OpenOptions::new().read(true).open(s)?, &mut buffer)?
+            }
+            None => PxlsParser::parse_raw(&mut io::stdin().lock(), &mut buffer)?,
         };
 
-        if let Some(mut region) = region {
-            if region[0] > region[2] {
-                region.swap(0, 2);
-            }
-            if region[1] > region[3] {
-                region.swap(1, 3);
-            }
-        }
+        let chunk_size = tokens.len() / settings.threads.unwrap_or(1);
+        let total = tokens.len() as i32 / 6;
+        let passed_tokens = tokens
+            .par_chunks_mut(chunk_size)
+            .flat_map(|chunk| {
+                chunk.par_chunks(6).filter_map(|tokens| {
+                    match self.is_filtered(tokens, &hashes, &region) {
+                        Ok(true) => Some(Ok(tokens)),
+                        Ok(false) => None,
+                        Err(e) => Some(Err(e)),
+                    }
+                })
+            })
+            .collect::<PxlsResult<Vec<_>>>()?;
 
-        Ok(Box::new(Filter {
-            src: self.src.to_owned(),
-            dst,
-            after: self.after,
-            before: self.before,
-            colors: self.color.to_owned(),
-            region,
-            hashes,
-            actions: self.action.to_owned(),
-        }))
-    }
-}
+        let out = passed_tokens
+            .par_iter()
+            .map(|tokens| tokens.join("\t"))
+            .collect::<Vec<String>>()
+            .join("\n");
 
-impl PxlsCommand for Filter {
-    fn run(&self, settings: &Cli) -> PxlsResult<()> {
-        let mut passed = 0;
-        let mut total = 0;
-        let output = match self.has_filter() {
-            true => {
-                let mut buffer = String::new();
-                let mut tokens = match &self.src {
-                    Some(s) => PxlsParser::parse_raw(
-                        &mut OpenOptions::new().read(true).open(s)?,
-                        &mut buffer,
-                    )?,
-                    None => PxlsParser::parse_raw(&mut io::stdin().lock(), &mut buffer)?,
-                };
-
-                total = tokens.len() as i32 / 6;
-
-                let chunk_size = tokens.len() / settings.threads.unwrap_or(1);
-                let passed_tokens = tokens
-                    .par_chunks_mut(chunk_size)
-                    .flat_map(|chunk| {
-                        chunk
-                            .par_chunks(6)
-                            .filter_map(|tokens| match self.is_filtered(tokens) {
-                                Ok(true) => Some(Ok(tokens)),
-                                Ok(false) => None,
-                                Err(e) => Some(Err(e)),
-                            })
-                    })
-                    .collect::<PxlsResult<Vec<_>>>()?;
-
-                let collected_tokens = passed_tokens
-                    .par_iter()
-                    .map(|tokens| tokens.join("\t"))
-                    .collect::<Vec<_>>();
-
-                passed = passed_tokens.len() as i32;
-
-                collected_tokens.join("\n")
-            }
-
-            // No filter, thus simplified output
-            // TODO: Determine if program should exit when no filters specified, because this is a glorified 'cp'/'echo' function
-            false => match &self.src {
-                Some(s) => fs::read_to_string(s)?,
-                None => {
-                    let mut buf = String::new();
-                    io::stdin().lock().read_to_string(&mut buf)?;
-                    buf
-                }
-            },
-        };
-        
-        match &self.dst {
+        match &dst {
             Some(path) => {
                 OpenOptions::new()
                     .create_new(settings.noclobber)
@@ -204,24 +119,28 @@ impl PxlsCommand for Filter {
                     .write(true)
                     .truncate(true)
                     .open(path)?
-                    .write_all(output.as_bytes())?;
+                    .write_all(out.as_bytes())?;
             }
             None => {
-                print!("{}", output);
+                print!("{}", out);
             }
         };
 
         if settings.verbose {
+            let passed = passed_tokens.len() as i32;
             println!("Returned {} of {} entries", passed, total);
         }
 
         Ok(())
     }
-}
 
-impl Filter {
     // TODO: Improve how tokens are inputted
-    fn is_filtered(&self, tokens: &[&str]) -> PxlsResult<bool> {
+    fn is_filtered(
+        &self,
+        tokens: &[&str],
+        hashes: &[String],
+        region: &Option<Region<i32>>,
+    ) -> PxlsResult<bool> {
         let mut out = true;
 
         if let Some(time) = self.after {
@@ -230,21 +149,21 @@ impl Filter {
         if let Some(time) = self.before {
             out &= time >= NaiveDateTime::parse_from_str(tokens[0], "%Y-%m-%d %H:%M:%S,%3f")?;
         }
-        if let Some(region) = self.region {
+        if let Some(region) = region {
             let x = tokens[2].parse::<i32>()?;
             let y = tokens[3].parse::<i32>()?;
-            out &= x >= region[0] && y >= region[1] && x <= region[2] && y <= region[3];
+            out &= region.contains(x, y);
         }
-        if self.colors.len() > 0 {
+        if self.color.len() > 0 {
             let mut temp = false;
-            for color in &self.colors {
+            for color in &self.color {
                 temp |= tokens[4].parse::<i32>()? == *color;
             }
             out &= temp;
         }
-        if self.actions.len() > 0 {
+        if self.action.len() > 0 {
             let mut temp = false;
-            for action in &self.actions {
+            for action in &self.action {
                 temp |= match action {
                     PixelKind::Place => tokens[5] == "user place",
                     PixelKind::Undo => tokens[5] == "user undo",
@@ -257,9 +176,9 @@ impl Filter {
             out &= temp;
         }
         // Skip if line didn't pass (Hashing is expen$ive)
-        if out == true && self.hashes.len() > 0 {
+        if out == true && hashes.len() > 0 {
             let mut temp = false;
-            for hash in &self.hashes {
+            for hash in hashes {
                 let mut hasher = Sha256::new();
                 hasher.update(tokens[0].as_bytes());
                 hasher.update(",");
@@ -278,12 +197,26 @@ impl Filter {
         Ok(out)
     }
 
-    fn has_filter(&self) -> bool {
-        self.after.is_some()
-            || self.before.is_some()
-            || !self.colors.is_empty()
-            || self.region.is_some()
-            || !self.hashes.is_empty()
-            || !self.actions.is_empty()
+    fn get_hash(&self, verbosity: bool) -> Vec<String> {
+        let mut hashes = self.hash.to_owned();
+        if let Some(src) = &self.hash_src {
+            let input = fs::read_to_string(src).map_err(|e| PxlsError::from(e, &src));
+            if let Ok(input) = input {
+                let lines: Vec<&str> = input
+                    .split_whitespace()
+                    .filter(|&x| !x.is_empty())
+                    .collect();
+
+                for (i, line) in lines.iter().enumerate() {
+                    if line.len() == 512 {
+                        hashes.push(line.to_string());
+                    } else if verbosity {
+                        eprintln!("Invalid hash at line {}! Ignoring...", i);
+                    }
+                }
+            }
+        }
+
+        hashes
     }
 }
