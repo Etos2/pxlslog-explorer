@@ -24,6 +24,9 @@ pub struct Cli {
     #[clap(short, long)]
     #[clap(help = "Prevent files from being overwritten")]
     pub noclobber: bool,
+    // #[clap(short, long)]
+    // #[clap(help = "Forcibly exit rather than ignoring errors")]
+    // pub strict: bool,
     #[clap(long)]
     #[clap(value_name("INT"))]
     #[clap(help = "Number of threads utilised [Defaults to all available threads]")]

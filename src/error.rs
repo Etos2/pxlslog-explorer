@@ -6,27 +6,38 @@ pub type PxlsResult<T> = Result<T, PxlsError>;
 #[derive(Debug)]
 pub struct PxlsError {
     file: Option<String>,
+    line: Option<usize>,
     kind: PxlsErrorKind,
 }
 
 impl PxlsError {
     pub fn new(kind: PxlsErrorKind) -> PxlsError {
-        PxlsError { file: None, kind }
+        PxlsError { file: None, line: None, kind }
     }
 
     pub fn new_with_file(kind: PxlsErrorKind, file: &str) -> PxlsError {
         PxlsError {
             file: Some(file.to_owned()),
+            line: None,
             kind,
         }
     }
 
-    pub fn from<T>(err: T, file: &str) -> PxlsError
+    pub fn new_with_line(kind: PxlsErrorKind, file: &str, line: usize) -> PxlsError {
+        PxlsError {
+            file: Some(file.to_owned()),
+            line: Some(line),
+            kind,
+        }
+    }
+
+    pub fn from<T>(err: T, file: &str, line: usize) -> PxlsError
     where
         T: Into<PxlsError>,
     {
         let mut err = err.into();
         err.file = Some(file.to_owned());
+        err.line = Some(line);
         err
     }
 
@@ -50,13 +61,14 @@ impl error::Error for PxlsError {}
 impl std::fmt::Display for PxlsError {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         let file = self.file.as_deref().unwrap_or("");
+        let line = self.line.unwrap_or(0);
         match &self.kind {
             PxlsErrorKind::Io(err) => write!(f, "{} ({})", err, file),
             PxlsErrorKind::Unsupported() => {
                 write!(f, "Unsupported file or file format: ({})", file)
             }
-            PxlsErrorKind::Eof() => write!(f, "Unexpected eof: ({})", file),
-            PxlsErrorKind::BadToken(s) => write!(f, "Invalid token: {} ({})", s, file),
+            PxlsErrorKind::Eof() => write!(f, "Unexpected eof: ({}, {})", file, line),
+            PxlsErrorKind::BadToken(s) => write!(f, "Invalid token: {} ({}, {})", s, file, line),
             PxlsErrorKind::InvalidState(s) => write!(f, "Invalid state: {}", s),
         }
     }

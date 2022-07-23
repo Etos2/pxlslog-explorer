@@ -2,7 +2,7 @@ use std::fs::{self, OpenOptions};
 use std::io::{self, prelude::*};
 
 use crate::error::{PxlsError, PxlsResult};
-use crate::pixel::{PixelKind, PxlsParser};
+use crate::pixel::{ActionKind, PxlsParser};
 use crate::util::Region;
 use crate::Cli;
 
@@ -68,7 +68,7 @@ pub struct FilterInput {
     #[clap(multiple_values(true))]
     #[clap(value_name("ENUM"))]
     #[clap(help = "Only include entries with this action", display_order = 9999)]
-    action: Vec<PixelKind>,
+    action: Vec<ActionKind>,
 }
 
 impl FilterInput {
@@ -165,12 +165,12 @@ impl FilterInput {
             let mut temp = false;
             for action in &self.action {
                 temp |= match action {
-                    PixelKind::Place => tokens[5] == "user place",
-                    PixelKind::Undo => tokens[5] == "user undo",
-                    PixelKind::Overwrite => tokens[5] == "mod overwrite",
-                    PixelKind::Rollback => tokens[5] == "rollback",
-                    PixelKind::RollbackUndo => tokens[5] == "rollback undo",
-                    PixelKind::Nuke => tokens[5] == "console nuke",
+                    ActionKind::Place => tokens[5] == "user place",
+                    ActionKind::Undo => tokens[5] == "user undo",
+                    ActionKind::Overwrite => tokens[5] == "mod overwrite",
+                    ActionKind::Rollback => tokens[5] == "rollback",
+                    ActionKind::RollbackUndo => tokens[5] == "rollback undo",
+                    ActionKind::Nuke => tokens[5] == "console nuke",
                 };
             }
             out &= temp;
@@ -200,7 +200,7 @@ impl FilterInput {
     fn get_hash(&self, verbosity: bool) -> Vec<String> {
         let mut hashes = self.hash.to_owned();
         if let Some(src) = &self.hash_src {
-            let input = fs::read_to_string(src).map_err(|e| PxlsError::from(e, &src));
+            let input = fs::read_to_string(src).map_err(|e| PxlsError::from(e, &src, 0));
             if let Ok(input) = input {
                 let lines: Vec<&str> = input
                     .split_whitespace()

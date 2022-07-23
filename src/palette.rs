@@ -15,7 +15,7 @@ impl PaletteParser {
         let mut file = OpenOptions::new()
             .read(true)
             .open(path)
-            .map_err(|e| PxlsError::from(e, path))?;
+            .map_err(|e| PxlsError::from(e, path, 0))?;
 
         match Path::new(path).extension().and_then(OsStr::to_str) {
             Some("json") => Ok(Self::parse_json(&mut file)?),
