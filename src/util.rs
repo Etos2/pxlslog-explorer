@@ -1,6 +1,6 @@
 use num_traits::{Bounded, NumOps};
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 pub struct Region<T> {
     start: (T, T),
     end: (T, T),
@@ -27,7 +27,7 @@ where
         out
     }
 
-    pub fn new_from_slice(region: &[T]) -> Option<Region<T>> {
+    pub fn from_slice(region: &[T]) -> Option<Region<T>> {
         match region.len() {
             1 => Some(Region {
                 start: (region[0], T::min_value()),

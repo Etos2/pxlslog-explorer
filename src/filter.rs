@@ -1,7 +1,7 @@
 use std::fs::{self, OpenOptions};
-use std::io::{self, prelude::*};
+use std::io::prelude::*;
 
-use crate::error::{PxlsError, PxlsResult};
+use crate::error::{PxlsError, PxlsErrorKind, PxlsResult};
 use crate::pixel::{ActionKind, PxlsParser};
 use crate::util::Region;
 use crate::Cli;
@@ -16,13 +16,11 @@ use sha2::{Digest, Sha256};
 #[clap(about = "Filter logs and outputs to new file", long_about = None)]
 #[clap(group(ArgGroup::new("hashes").args(&["hash", "hash-src"])))]
 #[clap(group(ArgGroup::new("overwrite").args(&["dst", "modify"])))]
+#[clap(group(ArgGroup::new("username-hash-conflict").args(&["hashes", "username"])))]
 pub struct FilterInput {
     #[clap(short, long)]
     #[clap(value_name("PATH"))]
-    #[clap(
-        help = "Filepath of input log file [Defaults to STDIN]",
-        display_order = 0
-    )]
+    #[clap(help = "Filepath of input log file", display_order = 0)]
     src: Option<String>,
     #[clap(short, long)]
     #[clap(value_name("PATH"))]
@@ -47,7 +45,7 @@ pub struct FilterInput {
     before: Option<NaiveDateTime>,
     #[clap(long)]
     #[clap(multiple_values(true))]
-    #[clap(value_name("INDEX"))]
+    #[clap(value_name("INT"))]
     #[clap(help = "Only include entries with provided colors")]
     color: Vec<i32>,
     #[clap(long, parse(try_from_str))]
@@ -57,12 +55,17 @@ pub struct FilterInput {
     region: Vec<i32>,
     #[clap(long)]
     #[clap(multiple_values(true))]
-    #[clap(value_name("HASH"))]
+    #[clap(value_name("STRING"))]
+    #[clap(help = "Only include entries that belong to this username")]
+    username: Vec<String>,
+    #[clap(long)]
+    #[clap(multiple_values(true))]
+    #[clap(value_name("STRING"))]
     #[clap(help = "Only include entries that belong to this hash")]
-    hash: Vec<String>,
+    hash: Option<Vec<String>>,
     #[clap(long)]
     #[clap(value_name("PATH"))]
-    #[clap(help = "Only include entries that belong to these hashes")]
+    #[clap(help = "Only include entries that belong to hashes from a file")]
     hash_src: Option<String>,
     #[clap(long, arg_enum)]
     #[clap(multiple_values(true))]
@@ -71,23 +74,94 @@ pub struct FilterInput {
     action: Vec<ActionKind>,
 }
 
-impl FilterInput {
-    pub fn run(&self, settings: &Cli) -> PxlsResult<()> {
-        let hashes = self.get_hash(settings.verbose);
-        let region = Region::new_from_slice(&self.region);
+pub struct FilterData {
+    src: Option<String>,
+    dst: Option<String>,
+    users: Identifier,
+    region: Option<Region<i32>>,
+    after: Option<NaiveDateTime>,
+    before: Option<NaiveDateTime>,
+    color: Vec<i32>,
+    action: Vec<ActionKind>,
+}
 
+enum Identifier {
+    Hash(Vec<String>),
+    Username(Vec<String>),
+    None,
+}
+
+impl FilterInput {
+    pub fn validate(&self) -> PxlsResult<FilterData> {
         let dst = if self.modify && self.src.is_some() {
             self.src.clone()
         } else {
             self.dst.clone()
         };
 
+        let users = if self.username.len() > 0 {
+            Identifier::Username(self.username.clone())
+        } else if let Some(hash) = &self.hash {
+            Identifier::Hash(hash.to_owned())
+        } else if let Some(src) = &self.hash_src {
+            Identifier::Hash(self.get_hashes(&src)?)
+        } else {
+            Identifier::None
+        };
+
+        Ok(FilterData {
+            src: self.src.clone(),
+            dst,
+            users,
+            region: Region::from_slice(&self.region),
+            after: self.after,
+            before: self.before,
+            color: self.color.clone(),
+            action: self.action.clone(),
+        })
+    }
+
+    fn get_hashes(&self, src: &str) -> PxlsResult<Vec<String>> {
+        let mut hashes = Vec::new();
+        let input = fs::read_to_string(src).map_err(|e| PxlsError::from(e, &src, 0))?;
+
+        for (i, line) in input.lines().enumerate() {
+            match Self::verify_hash(line) {
+                Some(hash) => hashes.push(hash.to_string()),
+                None => {
+                    return Err(PxlsError::new_with_line(
+                        PxlsErrorKind::BadToken("Invalid hash".to_string()),
+                        src,
+                        i,
+                    ))
+                }
+            }
+        }
+
+        Ok(hashes)
+    }
+
+    fn verify_hash(hash: &str) -> Option<&str> {
+        if hash.len() == 512 {
+            None
+        } else {
+            Some(hash)
+        }
+    }
+}
+
+impl FilterData {
+    pub fn run(&self, settings: &Cli) -> PxlsResult<()> {
         let mut buffer = String::new();
         let mut tokens = match &self.src {
             Some(s) => {
-                PxlsParser::parse_raw(&mut OpenOptions::new().read(true).open(s)?, &mut buffer)?
+                let mut file = OpenOptions::new().read(true).open(s)?;
+                PxlsParser::parse_raw(&mut file, &mut buffer)?
             }
-            None => PxlsParser::parse_raw(&mut io::stdin().lock(), &mut buffer)?,
+            None => {
+                let mut stdin = std::io::stdin().lock();
+                PxlsParser::parse_raw(&mut stdin, &mut buffer)?
+            }
         };
 
         let chunk_size = tokens.len() / settings.threads.unwrap_or(1);
@@ -95,13 +169,13 @@ impl FilterInput {
         let passed_tokens = tokens
             .par_chunks_mut(chunk_size)
             .flat_map(|chunk| {
-                chunk.par_chunks(6).filter_map(|tokens| {
-                    match self.is_filtered(tokens, &hashes, &region) {
+                chunk
+                    .par_chunks(6)
+                    .filter_map(|tokens| match self.is_filtered(tokens) {
                         Ok(true) => Some(Ok(tokens)),
                         Ok(false) => None,
                         Err(e) => Some(Err(e)),
-                    }
-                })
+                    })
             })
             .collect::<PxlsResult<Vec<_>>>()?;
 
@@ -111,7 +185,7 @@ impl FilterInput {
             .collect::<Vec<String>>()
             .join("\n");
 
-        match &dst {
+        match &self.dst {
             Some(path) => {
                 OpenOptions::new()
                     .create_new(settings.noclobber)
@@ -135,12 +209,8 @@ impl FilterInput {
     }
 
     // TODO: Improve how tokens are inputted
-    fn is_filtered(
-        &self,
-        tokens: &[&str],
-        hashes: &[String],
-        region: &Option<Region<i32>>,
-    ) -> PxlsResult<bool> {
+    // TODO: Split into individual functions
+    fn is_filtered(&self, tokens: &[&str]) -> PxlsResult<bool> {
         let mut out = true;
 
         if let Some(time) = self.after {
@@ -149,7 +219,7 @@ impl FilterInput {
         if let Some(time) = self.before {
             out &= time >= NaiveDateTime::parse_from_str(tokens[0], "%Y-%m-%d %H:%M:%S,%3f")?;
         }
-        if let Some(region) = region {
+        if let Some(region) = self.region {
             let x = tokens[2].parse::<i32>()?;
             let y = tokens[3].parse::<i32>()?;
             out &= region.contains(x, y);
@@ -176,47 +246,32 @@ impl FilterInput {
             out &= temp;
         }
         // Skip if line didn't pass (Hashing is expen$ive)
-        if out == true && hashes.len() > 0 {
-            let mut temp = false;
-            for hash in hashes {
-                let mut hasher = Sha256::new();
-                hasher.update(tokens[0].as_bytes());
-                hasher.update(",");
-                hasher.update(tokens[2].as_bytes());
-                hasher.update(",");
-                hasher.update(tokens[3].as_bytes());
-                hasher.update(",");
-                hasher.update(tokens[4].as_bytes());
-                hasher.update(",");
-                hasher.update(hash.as_bytes());
-                let digest = hex::encode(hasher.finalize());
-                temp |= &digest[..] == tokens[1];
+        if out == true {
+            match &self.users {
+                Identifier::Hash(hashes) => {
+                    let mut temp = false;
+                    for hash in hashes {
+                        let mut hasher = Sha256::new();
+                        hasher.update(tokens[0].as_bytes());
+                        hasher.update(",");
+                        hasher.update(tokens[2].as_bytes());
+                        hasher.update(",");
+                        hasher.update(tokens[3].as_bytes());
+                        hasher.update(",");
+                        hasher.update(tokens[4].as_bytes());
+                        hasher.update(",");
+                        hasher.update(hash.as_bytes());
+                        let digest = hex::encode(hasher.finalize());
+                        temp |= &digest[..] == tokens[1];
+                    }
+                    out &= temp;
+                }
+                Identifier::Username(_) => {
+                    unimplemented!()
+                }
+                Identifier::None => (),
             }
-            out &= temp;
         }
         Ok(out)
-    }
-
-    fn get_hash(&self, verbosity: bool) -> Vec<String> {
-        let mut hashes = self.hash.to_owned();
-        if let Some(src) = &self.hash_src {
-            let input = fs::read_to_string(src).map_err(|e| PxlsError::from(e, &src, 0));
-            if let Ok(input) = input {
-                let lines: Vec<&str> = input
-                    .split_whitespace()
-                    .filter(|&x| !x.is_empty())
-                    .collect();
-
-                for (i, line) in lines.iter().enumerate() {
-                    if line.len() == 512 {
-                        hashes.push(line.to_string());
-                    } else if verbosity {
-                        eprintln!("Invalid hash at line {}! Ignoring...", i);
-                    }
-                }
-            }
-        }
-
-        hashes
     }
 }

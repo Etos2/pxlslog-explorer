@@ -60,20 +60,22 @@ fn main() {
         }
     }
 
-    let command = match &cli.input {
-        Input::Filter(filter_input) => filter_input.run(&cli),
-        Input::Render(render_input) => render_input.run(&cli),
+    let err = match &cli.input {
+        Input::Filter(filter_input) => {
+            match filter_input.validate() {
+                Ok(data) => data.run(&cli).err(),
+                Err(e) => Some(e)
+            }
+        },
+        Input::Render(render_input) => {
+            match render_input.validate() {
+                Ok(data) => data.run(&cli).err(),
+                Err(e) => Some(e)
+            }
+        },
     };
 
-    match command {
-        Ok(_) => {
-            if cli.verbose {
-                eprintln!("Executed successfully!")
-            }
-        }
-        Err(e) => {
-            eprintln!("{}", e);
-            std::process::exit(1);
-        }
-    };
+    if let Some(e) = err {
+        eprintln!("{}", e);
+    }
 }

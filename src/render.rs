@@ -127,69 +127,46 @@ const PALETTE: [[u8; 4]; 32] = [
     [116, 12, 0, 255],    // Maroon
 ];
 
-// pub struct Render {
-//     src: String,
-//     dst: Option<String>,
-//     background: RgbaImage,
-//     style: RenderType,
-//     step: i64,
-//     skip: usize,
-//     palette: Vec<[u8; 4]>,
-//     crop: Region<u32>,
-// }
-
-#[derive(Debug, Copy, Clone, ArgEnum)]
-enum RenderType {
-    Normal,
-    Heat,
-    Virgin,
-    Activity,
-    Action,
-    Milliseconds,
-    Seconds,
-    Minutes,
-    Combined,
-    Age,
-}
-
-impl Default for RenderType {
-    fn default() -> Self {
-        RenderType::Normal
-    }
-}
-
-trait Renderable {
-    fn render(&mut self, actions: &[Action], frame: &mut RgbaImage);
+pub struct RenderData {
+    dst: Option<String>,
+    pixels: Vec<Action>,
+    background: RgbaImage,
+    style: RenderType,
+    step: i64,
+    skip: usize,
+    palette: Vec<[u8; 4]>,
 }
 
 impl RenderInput {
-    pub fn run(&self, settings: &Cli) -> PxlsResult<()> {
-        let stdout = io::stdout();
-        let crop = Region::new_from_slice(&self.crop).unwrap_or(Region::all());
-        let style = self.style.unwrap_or_default();
-        let pixels = Self::get_pixels(&self.src, &crop)?;
-        let background = Self::get_background(&self, &crop)?;
-
+    pub fn validate(&self) -> PxlsResult<RenderData> {
         let palette = match &self.palette {
             Some(path) => PaletteParser::try_parse(&path)?,
             None => PALETTE.to_vec(),
         };
 
-        let step = match self.step {
-            Some(step) => {
-                if step > 0 {
-                    step
-                } else {
-                    i64::MAX
-                }
-            }
-            None => i64::MAX,
-        };
+        let mut step = self.step.unwrap_or(i64::MAX);
+        if step == 0 {
+            step = i64::MAX;
+        }
 
         let mut skip = self.skip.unwrap_or(0);
         if self.screenshot {
             skip = 1;
         }
+
+        let crop = Region::from_slice(&self.crop).unwrap_or(Region::all());
+        let pixels = Self::get_pixels(&self.src, &crop)?;
+        let background = match &self.bg {
+            Some(path) => Self::get_background(path, &crop)?,
+            None => match &self.size {
+                Some(size) => Self::generate_background(size[0], size[1], self.color.as_deref()),
+                None => {
+                    return Err(PxlsError::new(PxlsErrorKind::InvalidState(
+                        "cannot infer size".to_string(),
+                    )))
+                }
+            },
+        };
 
         if pixels.len() == 0 {
             return Err(PxlsError::new(PxlsErrorKind::InvalidState(
@@ -197,118 +174,15 @@ impl RenderInput {
             )));
         }
 
-        // TODO: Clobber
-        if settings.noclobber {
-            return Err(PxlsError::new(PxlsErrorKind::InvalidState(
-                "No clobber is NOT implemented for RENDER! Yet...".to_string(),
-            )));
-        }
-
-        let frames = Self::get_frame_slices(&pixels, step);
-        let mut current = background.clone();
-        let width = current.width();
-        let height = current.height();
-
-        if settings.verbose {
-            eprintln!("Rendering {} frames", frames.len());
-        }
-
-        let mut renderer: Box<dyn Renderable> = match style {
-            RenderType::Normal => Box::new(NormalRender::new(&background, &palette)),
-            RenderType::Activity => Box::new(ActivityRender::new(width, height)),
-            RenderType::Heat => Box::new(HeatRender::new(width, height, step)),
-            RenderType::Virgin => Box::new(VirginRender {}),
-            RenderType::Action => Box::new(ActionRender {}),
-            RenderType::Combined => Box::new(CombinedRender {}),
-            RenderType::Milliseconds => {
-                let val = Rgba::from([255, 0, 0, 255]);
-                Box::new(PlacementRender::new(val, 1000))
-            }
-            RenderType::Seconds => {
-                let val = Rgba::from([0, 255, 0, 255]);
-                Box::new(PlacementRender::new(val, 60000))
-            }
-            RenderType::Minutes => {
-                let val = Rgba::from([0, 0, 255, 255]);
-                Box::new(PlacementRender::new(val, 3600000))
-            }
-            RenderType::Age => {
-                // Safe unwrap (pixels.len > 0)
-                let min = pixels.first().unwrap().timestamp;
-                let max = pixels.last().unwrap().timestamp;
-                Box::new(AgeRender::new(min, max))
-            }
-        };
-
-        for (i, frame) in frames[skip..].iter().enumerate() {
-            current = current.clone();
-            renderer.render(frame, &mut current);
-
-            match &self.dst {
-                Some(path) => Self::frame_to_file(&current, &path, i)?,
-                None => Self::frame_to_raw(&current, &mut stdout.lock())?,
-            }
-        }
-
-        Ok(())
-    }
-
-    fn get_background(&self, crop: &Region<u32>) -> PxlsResult<RgbaImage> {
-        match &self.bg {
-            Some(path) => {
-                let x = crop.start().0;
-                let y = crop.start().1;
-                let width = crop.width();
-                let height = crop.height();
-                Ok(ImageReader::open(path)?
-                    .decode()?
-                    .crop(x, y, width, height)
-                    .to_rgba8())
-            }
-            None => {
-                let size = match &self.size {
-                    Some(size) => (size[0], size[1]),
-                    None => {
-                        return Err(PxlsError::new(PxlsErrorKind::InvalidState(
-                            "cannot infer size from crop without width and height".to_string(),
-                        )))
-                    }
-                };
-
-                Ok(ImageBuffer::from_pixel(
-                    size.0,
-                    size.1,
-                    match &self.color {
-                        Some(color) => image::Rgba::from_slice(&color).to_owned(),
-                        None => image::Rgba::from([0, 0, 0, 0]),
-                    },
-                ))
-            }
-        }
-    }
-
-    // TODO: Error handling
-    fn frame_to_file(frame: &RgbaImage, path: &str, i: usize) -> PxlsResult<()> {
-        let ext = Path::new(path)
-            .extension()
-            .and_then(OsStr::to_str)
-            .ok_or(PxlsError::new_with_file(PxlsErrorKind::Unsupported(), path))?;
-
-        let mut dst = path.to_owned();
-        dst.truncate(dst.len() - ext.len() - 1);
-
-        frame
-            .save(format!("{}_{}.{}", dst, i, ext))
-            .map_err(|e| PxlsError::from(e, &path, 0))?;
-
-        Ok(())
-    }
-
-    fn frame_to_raw<R: Write>(frame: &RgbaImage, out: &mut R) -> PxlsResult<()> {
-        let buf = &frame.as_raw()[..];
-        out.write_all(buf)?;
-        out.flush()?;
-        Ok(())
+        Ok(RenderData {
+            dst: self.dst.to_owned(),
+            pixels,
+            background,
+            style: self.style.unwrap_or(RenderType::Normal),
+            step,
+            skip,
+            palette,
+        })
     }
 
     fn get_pixels<P>(path: P, region: &Region<u32>) -> PxlsResult<Vec<Action>>
@@ -355,27 +229,158 @@ impl RenderInput {
             .collect())
     }
 
-    fn get_frame_slices(pixels: &[Action], step: i64) -> Vec<&[Action]> {
-        let mut frames: Vec<&[Action]> = vec![];
+    fn get_background(path: &str, crop: &Region<u32>) -> PxlsResult<RgbaImage> {
+        let x = crop.start().0;
+        let y = crop.start().1;
+        let width = crop.width();
+        let height = crop.height();
+        Ok(ImageReader::open(path)?
+            .decode()?
+            .crop(x, y, width, height)
+            .to_rgba8())
+    }
+
+    fn generate_background(x: u32, y: u32, color: Option<&[u8]>) -> RgbaImage {
+        let pixel = match &color {
+            Some(color) => image::Rgba::from_slice(&color).to_owned(),
+            None => image::Rgba::from([0, 0, 0, 0]),
+        };
+
+        ImageBuffer::from_pixel(x, y, pixel)
+    }
+}
+
+#[derive(Debug, Copy, Clone, ArgEnum)]
+enum RenderType {
+    Normal,
+    Heat,
+    Virgin,
+    Activity,
+    Action,
+    Milliseconds,
+    Seconds,
+    Minutes,
+    Combined,
+    Age,
+}
+
+impl Default for RenderType {
+    fn default() -> Self {
+        RenderType::Normal
+    }
+}
+
+trait Renderable {
+    fn render(&mut self, actions: &[Action], frame: &mut RgbaImage);
+}
+
+impl RenderData {
+    pub fn run(&self, settings: &Cli) -> PxlsResult<()> {
+        let stdout = io::stdout();
+
+        // TODO: Clobber
+        if settings.noclobber {
+            return Err(PxlsError::new(PxlsErrorKind::InvalidState(
+                "No clobber is NOT implemented for RENDER! Yet...".to_string(),
+            )));
+        }
+
+        let width = self.background.width();
+        let height = self.background.height();
+        let mut renderer: Box<dyn Renderable> = match self.style {
+            RenderType::Normal => Box::new(NormalRender::new(&self.background, &self.palette)),
+            RenderType::Activity => Box::new(ActivityRender::new(width, height)),
+            RenderType::Heat => Box::new(HeatRender::new(width, height, self.step)),
+            RenderType::Virgin => Box::new(VirginRender {}),
+            RenderType::Action => Box::new(ActionRender {}),
+            RenderType::Combined => Box::new(CombinedRender {}),
+            RenderType::Milliseconds => {
+                let val = Rgba::from([255, 0, 0, 255]);
+                Box::new(PlacementRender::new(val, 1000))
+            }
+            RenderType::Seconds => {
+                let val = Rgba::from([0, 255, 0, 255]);
+                Box::new(PlacementRender::new(val, 60000))
+            }
+            RenderType::Minutes => {
+                let val = Rgba::from([0, 0, 255, 255]);
+                Box::new(PlacementRender::new(val, 3600000))
+            }
+            RenderType::Age => {
+                // Safe unwrap (pixels.len > 0)
+                let min = self.pixels.first().unwrap().timestamp;
+                let max = self.pixels.last().unwrap().timestamp;
+                Box::new(AgeRender::new(min, max))
+            }
+        };
+
+        let frames = Self::get_frame_slices(&self.pixels, self.step);
+        let mut current = self.background.clone();
+
+        if settings.verbose {
+            eprintln!("Rendering {} frames", frames.len());
+        }
+
+        for (i, frame) in frames[self.skip..].iter().enumerate() {
+            if let Some(frame) = frame {
+                current = current.clone();
+                renderer.render(frame, &mut current);
+            }
+
+            match &self.dst {
+                Some(path) => Self::frame_to_file(&current, &path, i)?,
+                None => Self::frame_to_raw(&current, &mut stdout.lock())?,
+            }
+        }
+
+        Ok(())
+    }
+
+    // TODO: Error handling
+    fn frame_to_file(frame: &RgbaImage, path: &str, i: usize) -> PxlsResult<()> {
+        let ext = Path::new(path)
+            .extension()
+            .and_then(OsStr::to_str)
+            .ok_or(PxlsError::new_with_file(PxlsErrorKind::Unsupported(), path))?;
+
+        let mut dst = path.to_owned();
+        dst.truncate(dst.len() - ext.len() - 1);
+
+        frame
+            .save(format!("{}_{}.{}", dst, i, ext))
+            .map_err(|e| PxlsError::from(e, &path, 0))?;
+
+        Ok(())
+    }
+
+    fn frame_to_raw<R: Write>(frame: &RgbaImage, out: &mut R) -> PxlsResult<()> {
+        let buf = &frame.as_raw()[..];
+        out.write_all(buf)?;
+        out.flush()?;
+        Ok(())
+    }
+
+    fn get_frame_slices(pixels: &[Action], step: i64) -> Vec<Option<&[Action]>> {
+        let mut frames: Vec<Option<&[Action]>> = vec![];
         let mut start = 0;
 
-        frames.push(&[]);
+        frames.push(None);
         if step != 0 {
             for (end, pair) in pixels.windows(2).enumerate() {
                 // TODO: Diff could be negative
                 let diff = pair[1].timestamp / step - pair[0].timestamp / step;
                 if diff > 0 {
-                    frames.push(&pixels[start..=end]);
+                    frames.push(Some(&pixels[start..=end]));
                     start = end;
                     for _ in 1..diff {
-                        frames.push(&[]);
+                        frames.push(None);
                     }
                 }
             }
 
-            frames.push(&pixels[start..]);
+            frames.push(Some(&pixels[start..]));
         } else {
-            frames.push(&pixels);
+            frames.push(Some(&pixels));
         }
 
         frames
