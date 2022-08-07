@@ -11,7 +11,7 @@ pub struct PxlsError {
 }
 
 impl PxlsError {
-    pub fn new(kind: PxlsErrorKind) -> PxlsError {
+    pub const fn new(kind: PxlsErrorKind) -> PxlsError {
         PxlsError { file: None, line: None, kind }
     }
 

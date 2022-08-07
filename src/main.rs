@@ -1,7 +1,7 @@
 mod error;
 mod filter;
 mod palette;
-mod pixel;
+mod action;
 mod render;
 mod util;
 

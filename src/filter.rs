@@ -1,22 +1,24 @@
-use std::fs::{self, OpenOptions};
+use std::fs::{self, File, OpenOptions};
 use std::io::prelude::*;
+use std::path::Path;
+use std::sync::atomic::{AtomicI32, Ordering};
 
+use crate::action::{ActionKind, ActionRef};
 use crate::error::{PxlsError, PxlsErrorKind, PxlsResult};
-use crate::pixel::{ActionKind, PxlsParser};
 use crate::util::Region;
 use crate::Cli;
 
 use chrono::NaiveDateTime;
 use clap::{ArgGroup, Args};
-use rayon::prelude::*;
+use rayon::iter::ParallelIterator;
+use rayon::str::ParallelString;
 use sha2::{Digest, Sha256};
 
 // TODO: Custom handling of specific types (e.g. region)
 #[derive(Args)]
 #[clap(about = "Filter logs and outputs to new file", long_about = None)]
-#[clap(group(ArgGroup::new("hashes").args(&["hash", "hash-src"])))]
+#[clap(group(ArgGroup::new("user-conflict").args(&["hash", "hash-src", "username"])))]
 #[clap(group(ArgGroup::new("overwrite").args(&["dst", "modify"])))]
-#[clap(group(ArgGroup::new("username-hash-conflict").args(&["hashes", "username"])))]
 pub struct FilterInput {
     #[clap(short, long)]
     #[clap(value_name("PATH"))]
@@ -47,12 +49,12 @@ pub struct FilterInput {
     #[clap(multiple_values(true))]
     #[clap(value_name("INT"))]
     #[clap(help = "Only include entries with provided colors")]
-    color: Vec<i32>,
+    color: Vec<usize>,
     #[clap(long, parse(try_from_str))]
     #[clap(max_values(4))]
     #[clap(value_name("INT"))]
     #[clap(help = "Only include entries within a region [\"x1 y1 x2 y2\"]")]
-    region: Vec<i32>,
+    region: Vec<u32>,
     #[clap(long)]
     #[clap(multiple_values(true))]
     #[clap(value_name("STRING"))]
@@ -78,11 +80,11 @@ pub struct FilterData {
     src: Option<String>,
     dst: Option<String>,
     users: Identifier,
-    region: Option<Region<i32>>,
+    region: Option<Region<u32>>,
     after: Option<NaiveDateTime>,
     before: Option<NaiveDateTime>,
-    color: Vec<i32>,
-    action: Vec<ActionKind>,
+    color: Vec<usize>,
+    kind: Vec<ActionKind>,
 }
 
 enum Identifier {
@@ -117,7 +119,7 @@ impl FilterInput {
             after: self.after,
             before: self.before,
             color: self.color.clone(),
-            action: self.action.clone(),
+            kind: self.action.clone(),
         })
     }
 
@@ -130,7 +132,7 @@ impl FilterInput {
                 Some(hash) => hashes.push(hash.to_string()),
                 None => {
                     return Err(PxlsError::new_with_line(
-                        PxlsErrorKind::BadToken("Invalid hash".to_string()),
+                        PxlsErrorKind::BadToken(line.to_owned()),
                         src,
                         i,
                     ))
@@ -152,38 +154,50 @@ impl FilterInput {
 
 impl FilterData {
     pub fn run(&self, settings: &Cli) -> PxlsResult<()> {
-        let mut buffer = String::new();
-        let mut tokens = match &self.src {
-            Some(s) => {
-                let mut file = OpenOptions::new().read(true).open(s)?;
-                PxlsParser::parse_raw(&mut file, &mut buffer)?
-            }
-            None => {
-                let mut stdin = std::io::stdin().lock();
-                PxlsParser::parse_raw(&mut stdin, &mut buffer)?
-            }
+        // TODO: No atomics?
+        let passed = AtomicI32::new(0);
+        let total = AtomicI32::new(0);
+
+        let mut data = String::new();
+        match &self.src {
+            Some(path) => File::open(path)?.read_to_string(&mut data)?,
+            None => std::io::stdin().lock().read_to_string(&mut data)?,
         };
 
-        let chunk_size = tokens.len() / settings.threads.unwrap_or(1);
-        let total = tokens.len() as i32 / 6;
-        let passed_tokens = tokens
-            .par_chunks_mut(chunk_size)
-            .flat_map(|chunk| {
-                chunk
-                    .par_chunks(6)
-                    .filter_map(|tokens| match self.is_filtered(tokens) {
-                        Ok(true) => Some(Ok(tokens)),
-                        Ok(false) => None,
-                        Err(e) => Some(Err(e)),
-                    })
-            })
-            .collect::<PxlsResult<Vec<_>>>()?;
+        let filename = match &self.src {
+            Some(path) => Path::new(path)
+                .file_name()
+                .unwrap()
+                .to_string_lossy()
+                .into_owned(),
+            None => "STDIN".to_string(),
+        };
 
-        let out = passed_tokens
-            .par_iter()
-            .map(|tokens| tokens.join("\t"))
-            .collect::<Vec<String>>()
-            .join("\n");
+        let out: String = data
+            .as_parallel_string()
+            .par_lines()
+            .inspect(|_| {
+                total.fetch_add(1, Ordering::SeqCst);
+            })
+            .filter_map(|s| match ActionRef::try_from(s) {
+                Ok(a) => {
+                    if self.is_filtered(&a) {
+                        Some(a.to_string() + "\n")
+                    } else {
+                        None
+                    }
+                }
+                Err(e) => {
+                    if settings.verbose {
+                        eprintln!("{}", PxlsError::from(e, &filename, 0));
+                    }
+                    None
+                } // TODO
+            })
+            .inspect(|_| {
+                passed.fetch_add(1, Ordering::SeqCst);
+            })
+            .collect();
 
         match &self.dst {
             Some(path) => {
@@ -196,13 +210,16 @@ impl FilterData {
                     .write_all(out.as_bytes())?;
             }
             None => {
-                print!("{}", out);
+                //print!("{}", out);
             }
         };
 
         if settings.verbose {
-            let passed = passed_tokens.len() as i32;
-            println!("Returned {} of {} entries", passed, total);
+            println!(
+                "Returned {} of {} entries",
+                passed.load(Ordering::Acquire),
+                total.load(Ordering::Acquire)
+            );
         }
 
         Ok(())
@@ -210,38 +227,29 @@ impl FilterData {
 
     // TODO: Improve how tokens are inputted
     // TODO: Split into individual functions
-    fn is_filtered(&self, tokens: &[&str]) -> PxlsResult<bool> {
+    fn is_filtered(&self, action: &ActionRef) -> bool {
         let mut out = true;
 
         if let Some(time) = self.after {
-            out &= time <= NaiveDateTime::parse_from_str(tokens[0], "%Y-%m-%d %H:%M:%S,%3f")?;
+            out &= time <= action.time;
         }
         if let Some(time) = self.before {
-            out &= time >= NaiveDateTime::parse_from_str(tokens[0], "%Y-%m-%d %H:%M:%S,%3f")?;
+            out &= time >= action.time;
         }
         if let Some(region) = self.region {
-            let x = tokens[2].parse::<i32>()?;
-            let y = tokens[3].parse::<i32>()?;
-            out &= region.contains(x, y);
+            out &= region.contains(action.x, action.y);
         }
         if self.color.len() > 0 {
             let mut temp = false;
             for color in &self.color {
-                temp |= tokens[4].parse::<i32>()? == *color;
+                temp |= *color == action.index;
             }
             out &= temp;
         }
-        if self.action.len() > 0 {
+        if self.kind.len() > 0 {
             let mut temp = false;
-            for action in &self.action {
-                temp |= match action {
-                    ActionKind::Place => tokens[5] == "user place",
-                    ActionKind::Undo => tokens[5] == "user undo",
-                    ActionKind::Overwrite => tokens[5] == "mod overwrite",
-                    ActionKind::Rollback => tokens[5] == "rollback",
-                    ActionKind::RollbackUndo => tokens[5] == "rollback undo",
-                    ActionKind::Nuke => tokens[5] == "console nuke",
-                };
+            for kind in &self.kind {
+                temp |= *kind == action.kind;
             }
             out &= temp;
         }
@@ -250,28 +258,29 @@ impl FilterData {
             match &self.users {
                 Identifier::Hash(hashes) => {
                     let mut temp = false;
+                    let time = action.time.format("%Y-%m-%d %H:%M:%S,%3f").to_string();
                     for hash in hashes {
                         let mut hasher = Sha256::new();
-                        hasher.update(tokens[0].as_bytes());
+                        hasher.update(time.as_bytes());
                         hasher.update(",");
-                        hasher.update(tokens[2].as_bytes());
+                        hasher.update(action.x.to_string().as_bytes());
                         hasher.update(",");
-                        hasher.update(tokens[3].as_bytes());
+                        hasher.update(action.y.to_string().as_bytes());
                         hasher.update(",");
-                        hasher.update(tokens[4].as_bytes());
+                        hasher.update(action.index.to_string().as_bytes());
                         hasher.update(",");
                         hasher.update(hash.as_bytes());
                         let digest = hex::encode(hasher.finalize());
-                        temp |= &digest[..] == tokens[1];
+                        temp |= &digest[..] == hash;
                     }
                     out &= temp;
                 }
                 Identifier::Username(_) => {
-                    unimplemented!()
+                    todo!()
                 }
                 Identifier::None => (),
             }
         }
-        Ok(out)
+        out
     }
 }
