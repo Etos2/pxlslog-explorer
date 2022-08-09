@@ -3,7 +3,7 @@ use std::io::{self, Write};
 use std::path::Path;
 
 use crate::action::{ActionKind, ActionRef};
-use crate::error::{PxlsError, PxlsErrorKind, PxlsResult};
+use crate::error::{ConfigError, ConfigResult, ParseError, ParseErrorKind, ParseResult};
 use crate::palette::PaletteParser;
 use crate::util::Region;
 use crate::Cli;
@@ -138,9 +138,10 @@ pub struct RenderData {
 }
 
 impl RenderInput {
-    pub fn validate(&self) -> PxlsResult<RenderData> {
+    pub fn validate(&self) -> ConfigResult<RenderData> {
         let palette = match &self.palette {
-            Some(path) => PaletteParser::try_parse(&path)?,
+            Some(path) => PaletteParser::try_parse(&path)
+                .map_err(|e| ConfigError::new("palette", &e.to_string()))?,
             None => PALETTE.to_vec(),
         };
 
@@ -164,14 +165,12 @@ impl RenderInput {
 
         let crop = Region::from_slice(&self.crop).unwrap_or(Region::all());
         let background = match &self.bg {
-            Some(path) => Self::get_background(path, &crop, self.dst.is_none())?,
+            Some(path) => Self::get_background(path, &crop, self.dst.is_none())
+                .map_err(|e| ParseError::from_err(e, path, 0))
+                .map_err(|e| ConfigError::new("bg", &e.to_string()))?, // TODO: Mapping but better?
             None => match &self.size {
                 Some(size) => RgbaImage::from_pixel(size[0], size[1], color),
-                None => {
-                    return Err(PxlsError::new(PxlsErrorKind::InvalidState(
-                        "cannot infer background".to_string(),
-                    )))
-                }
+                None => Err(ConfigError::new("bg", "cannot infer size"))?,
             },
         };
 
@@ -187,7 +186,7 @@ impl RenderInput {
         })
     }
 
-    fn get_background(path: &str, crop: &Region<u32>, transparent: bool) -> PxlsResult<RgbaImage> {
+    fn get_background(path: &str, crop: &Region<u32>, transparent: bool) -> ParseResult<RgbaImage> {
         let x = crop.start().0;
         let y = crop.start().1;
         let width = crop.width();
@@ -232,15 +231,11 @@ trait Renderable {
 }
 
 impl RenderData {
-    pub fn run(&self, settings: &Cli) -> PxlsResult<()> {
+    pub fn run(&self, settings: &Cli) -> ParseResult<()> {
         let stdout = io::stdout();
 
         // TODO: Clobber
-        if settings.noclobber {
-            return Err(PxlsError::new(PxlsErrorKind::InvalidState(
-                "No clobber is NOT implemented for RENDER! Yet...".to_string(),
-            )));
-        }
+        assert!(!settings.noclobber);
 
         let data = std::fs::read_to_string(&self.src)?;
         let pixels: Vec<ActionRef> = data
@@ -259,7 +254,11 @@ impl RenderData {
             .collect();
 
         if pixels.len() == 0 {
-            return Err(PxlsError::new_with_line(PxlsErrorKind::Eof(), &self.src, 0));
+            Err(ParseError::new_with_file(
+                ParseErrorKind::UnexpectedEof,
+                &self.src,
+                0,
+            ))?;
         }
 
         let width = self.background.width();
@@ -306,8 +305,10 @@ impl RenderData {
             }
 
             match &self.dst {
-                Some(path) => Self::frame_to_file(&current, &path, i)?,
-                None => Self::frame_to_raw(&current, &mut stdout.lock())?,
+                Some(path) => Self::frame_to_file(&current, &path, i)
+                    .map_err(|e| ParseError::from_err(e, &path, 0))?,
+                None => Self::frame_to_raw(&current, &mut stdout.lock())
+                    .map_err(|e| ParseError::from_err(e, "STDOUT", 0))?,
             }
         }
 
@@ -315,23 +316,21 @@ impl RenderData {
     }
 
     // TODO: Error handling
-    fn frame_to_file(frame: &RgbaImage, path: &str, i: usize) -> PxlsResult<()> {
+    fn frame_to_file(frame: &RgbaImage, path: &str, i: usize) -> ParseResult<()> {
         let ext = Path::new(path)
             .extension()
             .and_then(OsStr::to_str)
-            .ok_or(PxlsError::new_with_file(PxlsErrorKind::Unsupported(), path))?;
+            .ok_or(ParseError::new(ParseErrorKind::Unsupported))?;
 
         let mut dst = path.to_owned();
         dst.truncate(dst.len() - ext.len() - 1);
 
-        frame
-            .save(format!("{}_{}.{}", dst, i, ext))
-            .map_err(|e| PxlsError::from(e, &path, 0))?;
+        frame.save(format!("{}_{}.{}", dst, i, ext))?;
 
         Ok(())
     }
 
-    fn frame_to_raw<R: Write>(frame: &RgbaImage, out: &mut R) -> PxlsResult<()> {
+    fn frame_to_raw<R: Write>(frame: &RgbaImage, out: &mut R) -> ParseResult<()> {
         let buf = &frame.as_raw()[..];
         out.write_all(buf)?;
         out.flush()?;

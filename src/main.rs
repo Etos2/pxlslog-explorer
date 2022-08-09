@@ -5,6 +5,7 @@ mod action;
 mod render;
 mod util;
 
+use exitcode;
 use filter::FilterInput;
 use render::RenderInput;
 
@@ -64,18 +65,31 @@ fn main() {
         Input::Filter(filter_input) => {
             match filter_input.validate() {
                 Ok(data) => data.run(&cli).err(),
-                Err(e) => Some(e)
+                Err(e) => {
+                    eprintln!("{}", e);
+                    std::process::exit(e.exitcode())
+                },
             }
         },
         Input::Render(render_input) => {
+            // TODO: Fix
+            if cli.noclobber {
+                eprintln!("Invalid argument \'noclobber\': Unsupported currently");
+                std::process::exit(exitcode::USAGE)
+            }
+
             match render_input.validate() {
                 Ok(data) => data.run(&cli).err(),
-                Err(e) => Some(e)
+                Err(e) => {
+                    eprintln!("{}", e);
+                    std::process::exit(e.exitcode())
+                },
             }
         },
     };
 
     if let Some(e) = err {
         eprintln!("{}", e);
+        std::process::exit(e.exitcode())
     }
 }

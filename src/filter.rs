@@ -4,7 +4,7 @@ use std::path::Path;
 use std::sync::atomic::{AtomicI32, Ordering};
 
 use crate::action::{ActionKind, ActionRef};
-use crate::error::{PxlsError, PxlsErrorKind, PxlsResult};
+use crate::error::{ConfigError, ConfigResult, ParseError, ParseErrorKind, ParseResult};
 use crate::util::Region;
 use crate::Cli;
 
@@ -94,7 +94,7 @@ enum Identifier {
 }
 
 impl FilterInput {
-    pub fn validate(&self) -> PxlsResult<FilterData> {
+    pub fn validate(&self) -> ConfigResult<FilterData> {
         let dst = if self.modify && self.src.is_some() {
             self.src.clone()
         } else {
@@ -106,7 +106,10 @@ impl FilterInput {
         } else if let Some(hash) = &self.hash {
             Identifier::Hash(hash.to_owned())
         } else if let Some(src) = &self.hash_src {
-            Identifier::Hash(self.get_hashes(&src)?)
+            Identifier::Hash(
+                self.get_hashes(&src)
+                    .map_err(|e| ConfigError::new("hash_src", &e.to_string()))?,
+            )
         } else {
             Identifier::None
         };
@@ -123,20 +126,18 @@ impl FilterInput {
         })
     }
 
-    fn get_hashes(&self, src: &str) -> PxlsResult<Vec<String>> {
+    fn get_hashes(&self, src: &str) -> ParseResult<Vec<String>> {
         let mut hashes = Vec::new();
-        let input = fs::read_to_string(src).map_err(|e| PxlsError::from(e, &src, 0))?;
+        let input = fs::read_to_string(src).map_err(|e| ParseError::from_err(e, &src, 0))?;
 
         for (i, line) in input.lines().enumerate() {
             match Self::verify_hash(line) {
                 Some(hash) => hashes.push(hash.to_string()),
-                None => {
-                    return Err(PxlsError::new_with_line(
-                        PxlsErrorKind::BadToken(line.to_owned()),
-                        src,
-                        i,
-                    ))
-                }
+                None => Err(ParseError::new_with_file(
+                    ParseErrorKind::BadToken(line.to_owned()),
+                    src,
+                    i,
+                ))?,
             }
         }
 
@@ -153,7 +154,7 @@ impl FilterInput {
 }
 
 impl FilterData {
-    pub fn run(&self, settings: &Cli) -> PxlsResult<()> {
+    pub fn run(&self, settings: &Cli) -> ParseResult<()> {
         // TODO: No atomics?
         let passed = AtomicI32::new(0);
         let total = AtomicI32::new(0);
@@ -189,7 +190,7 @@ impl FilterData {
                 }
                 Err(e) => {
                     if settings.verbose {
-                        eprintln!("{}", PxlsError::from(e, &filename, 0));
+                        eprintln!("{}", ParseError::from_err(e, &filename, 0));
                     }
                     None
                 } // TODO

@@ -1,7 +1,7 @@
-use crate::error::{PxlsError, PxlsErrorKind};
-
 use chrono::NaiveDateTime;
 use clap::ArgEnum;
+
+use crate::error::{ParseError, ParseErrorKind};
 
 // TODO: Move ArgEnum into filter.rs?
 #[derive(Debug, PartialEq, Copy, Clone, ArgEnum)]
@@ -15,7 +15,7 @@ pub enum ActionKind {
 }
 
 impl<'a> TryFrom<&'a str> for ActionKind {
-    type Error = PxlsError;
+    type Error = ParseError;
 
     fn try_from(s: &'a str) -> Result<Self, Self::Error> {
         match s {
@@ -25,7 +25,7 @@ impl<'a> TryFrom<&'a str> for ActionKind {
             "rollback" => Ok(ActionKind::Rollback),
             "rollback undo" => Ok(ActionKind::RollbackUndo),
             "console nuke" => Ok(ActionKind::Nuke),
-            _ => Err(PxlsError::new(PxlsErrorKind::BadToken(s.to_string()))),
+            _ => Err(ParseError::new(ParseErrorKind::BadToken(s.to_string()))),
         }
     }
 }
@@ -80,20 +80,38 @@ pub struct ActionRef<'a> {
 }
 
 // Todo: Remove
-const EOF: PxlsError = PxlsError::new(PxlsErrorKind::Eof());
 impl<'a> TryFrom<&'a str> for ActionRef<'a> {
-    type Error = PxlsError;
+    type Error = ParseError;
 
     fn try_from(s: &'a str) -> Result<Self, Self::Error> {
         let mut iter = s.split_terminator(|c| c == '\t');
 
         Ok(ActionRef {
-            time: NaiveDateTime::parse_from_str(iter.next().ok_or(EOF)?, "%Y-%m-%d %H:%M:%S,%3f")?,
-            user: Identifier::from(iter.next().ok_or(EOF)?),
-            x: iter.next().ok_or(EOF)?.parse()?,
-            y: iter.next().ok_or(EOF)?.parse()?,
-            index: iter.next().ok_or(EOF)?.parse()?,
-            kind: ActionKind::try_from(iter.next().ok_or(EOF)?)?,
+            time: NaiveDateTime::parse_from_str(
+                iter.next()
+                    .ok_or(ParseError::new(ParseErrorKind::UnexpectedEof))?,
+                "%Y-%m-%d %H:%M:%S,%3f",
+            )?,
+            user: Identifier::from(
+                iter.next()
+                    .ok_or(ParseError::new(ParseErrorKind::UnexpectedEof))?,
+            ),
+            x: iter
+                .next()
+                .ok_or(ParseError::new(ParseErrorKind::UnexpectedEof))?
+                .parse()?,
+            y: iter
+                .next()
+                .ok_or(ParseError::new(ParseErrorKind::UnexpectedEof))?
+                .parse()?,
+            index: iter
+                .next()
+                .ok_or(ParseError::new(ParseErrorKind::UnexpectedEof))?
+                .parse()?,
+            kind: ActionKind::try_from(
+                iter.next()
+                    .ok_or(ParseError::new(ParseErrorKind::UnexpectedEof))?,
+            )?,
         })
     }
 }
