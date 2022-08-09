@@ -1,99 +1,186 @@
 use std::error;
+use std::fmt::Display;
 use std::io;
+use std::path::PathBuf;
 
-pub type PxlsResult<T> = Result<T, PxlsError>;
+pub type ConfigResult<T> = Result<T, ConfigError>;
+pub type ParseResult<T> = Result<T, ParseError>;
 
-#[derive(Debug)]
-pub struct PxlsError {
-    file: Option<String>,
-    kind: PxlsErrorKind,
+pub trait Terminate
+where
+    Self: Display,
+{
+    fn exitcode(&self) -> i32;
+    fn terminate(&self) -> ! {
+        eprintln!("{}", self);
+        std::process::exit(self.exitcode())
+    }
 }
 
-impl PxlsError {
-    pub fn new(kind: PxlsErrorKind) -> PxlsError {
-        PxlsError { file: None, kind }
-    }
+#[derive(Debug)]
+pub struct ConfigError {
+    arg: String,
+    reason: String,
+}
 
-    pub fn new_with_file(kind: PxlsErrorKind, file: &str) -> PxlsError {
-        PxlsError {
-            file: Some(file.to_owned()),
+impl error::Error for ConfigError {}
+
+impl std::fmt::Display for ConfigError {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        write!(f, "Invalid argument \'{}\': {}", self.arg, self.reason)
+    }
+}
+
+impl ConfigError {
+    pub fn new(arg: &str, reason: &str) -> ConfigError {
+        ConfigError {
+            arg: arg.to_owned(),
+            reason: reason.to_owned(),
+        }
+    }
+}
+
+impl Terminate for ConfigError {
+    fn exitcode(&self) -> i32 {
+        exitcode::USAGE
+    }
+}
+
+#[derive(Debug)]
+pub struct ParseError {
+    file: PathBuf,
+    line: usize,
+    kind: ParseErrorKind,
+}
+
+#[derive(Debug, Clone)]
+pub enum ParseErrorKind {
+    Io(io::ErrorKind),
+    BadToken(String),
+    UnexpectedEof,
+    Unsupported,
+    InvalidFile,
+}
+
+impl error::Error for ParseError {}
+impl ParseError {
+    pub fn new(kind: ParseErrorKind) -> ParseError {
+        ParseError {
+            file: PathBuf::new(),
+            line: 0,
             kind,
         }
     }
 
-    pub fn from<T>(err: T, file: &str) -> PxlsError
+    pub fn new_with_file(kind: ParseErrorKind, file: &str, line: usize) -> ParseError {
+        ParseError {
+            file: PathBuf::from(file),
+            line,
+            kind,
+        }
+    }
+
+    pub fn from_err<E>(err: E, file: &str, line: usize) -> ParseError
     where
-        T: Into<PxlsError>,
+        E: Into<ParseError>,
     {
-        let mut err = err.into();
-        err.file = Some(file.to_owned());
-        err
-    }
-
-    pub fn file(&self) -> Option<&str> {
-        self.file.as_deref()
+        let mut e = err.into();
+        e.file = PathBuf::from(file);
+        e.line = line;
+        e
     }
 }
 
-#[non_exhaustive]
-#[derive(Debug)]
-pub enum PxlsErrorKind {
-    Io(io::Error),
-    Unsupported(),
-    Eof(),
-    BadToken(String),
-    InvalidState(String),
-}
-
-impl error::Error for PxlsError {}
-
-impl std::fmt::Display for PxlsError {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        let file = self.file.as_deref().unwrap_or("");
-        match &self.kind {
-            PxlsErrorKind::Io(err) => write!(f, "{} ({})", err, file),
-            PxlsErrorKind::Unsupported() => {
-                write!(f, "Unsupported file or file format: ({})", file)
-            }
-            PxlsErrorKind::Eof() => write!(f, "Unexpected eof: ({})", file),
-            PxlsErrorKind::BadToken(s) => write!(f, "Invalid token: {} ({})", s, file),
-            PxlsErrorKind::InvalidState(s) => write!(f, "Invalid state: {}", s),
+impl Terminate for ParseError {
+    fn exitcode(&self) -> i32 {
+        match self.kind {
+            ParseErrorKind::Io(e) => match e {
+                io::ErrorKind::NotFound => exitcode::NOINPUT,
+                io::ErrorKind::AlreadyExists => exitcode::CANTCREAT,
+                io::ErrorKind::PermissionDenied => exitcode::NOINPUT,
+                _ => exitcode::IOERR,
+            },
+            ParseErrorKind::UnexpectedEof => exitcode::DATAERR,
+            ParseErrorKind::BadToken(_) => exitcode::DATAERR,
+            ParseErrorKind::Unsupported => exitcode::DATAERR,
+            ParseErrorKind::InvalidFile => exitcode::DATAERR,
         }
     }
 }
 
-impl From<std::io::Error> for PxlsError {
-    fn from(value: std::io::Error) -> Self {
-        PxlsError::new(PxlsErrorKind::Io(value))
+impl std::fmt::Display for ParseError {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        match self.kind {
+            ParseErrorKind::InvalidFile => write!(
+                f,
+                "{}, {} contains no valid data",
+                self.kind.to_string(),
+                self.file.display(),
+            ),
+            ParseErrorKind::Io(_) => write!(
+                f,
+                "{} while reading {}",
+                self.kind.to_string(),
+                self.file.display(),
+            ),
+            _ => write!(
+                f,
+                "{} while reading {} at line {}",
+                self.kind.to_string(),
+                self.file.display(),
+                self.line.to_string(),
+            ),
+        }
     }
 }
 
-impl From<serde_json::Error> for PxlsError {
-    fn from(value: serde_json::Error) -> Self {
-        PxlsError::new(PxlsErrorKind::BadToken(value.to_string()))
+impl std::fmt::Display for ParseErrorKind {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        match self {
+            ParseErrorKind::Io(kind) => write!(f, "IO error ({})", kind.to_string()),
+            ParseErrorKind::BadToken(t) => write!(f, "Token \'{}\' is invalid", t),
+            ParseErrorKind::UnexpectedEof => write!(f, "Unexpected EOF"),
+            ParseErrorKind::Unsupported => write!(f, "Unsupported file"),
+            ParseErrorKind::InvalidFile => write!(f, "Invalid log"),
+        }
     }
 }
 
-impl From<hex::FromHexError> for PxlsError {
-    fn from(value: hex::FromHexError) -> Self {
-        PxlsError::new(PxlsErrorKind::BadToken(value.to_string()))
+impl From<std::io::Error> for ParseError {
+    fn from(e: std::io::Error) -> Self {
+        ParseError::new(ParseErrorKind::Io(e.kind()))
     }
 }
 
-impl From<image::ImageError> for PxlsError {
-    fn from(_: image::ImageError) -> Self {
-        PxlsError::new(PxlsErrorKind::Unsupported())
+impl From<serde_json::Error> for ParseError {
+    fn from(e: serde_json::Error) -> Self {
+        ParseError::new(ParseErrorKind::BadToken(e.to_string()))
     }
 }
 
-impl From<chrono::ParseError> for PxlsError {
-    fn from(value: chrono::ParseError) -> Self {
-        PxlsError::new(PxlsErrorKind::BadToken(value.to_string()))
+impl From<hex::FromHexError> for ParseError {
+    fn from(e: hex::FromHexError) -> Self {
+        ParseError::new(ParseErrorKind::BadToken(e.to_string()))
     }
 }
 
-impl From<std::num::ParseIntError> for PxlsError {
-    fn from(value: std::num::ParseIntError) -> Self {
-        PxlsError::new(PxlsErrorKind::BadToken(value.to_string()))
+impl From<chrono::ParseError> for ParseError {
+    fn from(e: chrono::ParseError) -> Self {
+        ParseError::new(ParseErrorKind::BadToken(e.to_string()))
+    }
+}
+
+impl From<std::num::ParseIntError> for ParseError {
+    fn from(e: std::num::ParseIntError) -> Self {
+        ParseError::new(ParseErrorKind::BadToken(e.to_string()))
+    }
+}
+
+impl From<image::ImageError> for ParseError {
+    fn from(e: image::ImageError) -> Self {
+        ParseError::new(match e {
+            image::ImageError::IoError(e) => ParseErrorKind::Io(e.kind()),
+            _ => ParseErrorKind::InvalidFile,
+        })
     }
 }

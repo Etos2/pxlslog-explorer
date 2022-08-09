@@ -6,6 +6,7 @@ edition = "2021"
 [dependencies]
 chrono = "0.4.19"
 clap = { version = "3.1.18", features = ["derive","std","suggestions"], default-features = false }
+exitcode = "1.1.2"
 hex = "0.4.3"
 image = "0.24.2"
 num_cpus = "1.13.1"
