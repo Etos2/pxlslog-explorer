@@ -4,6 +4,7 @@ use std::path::Path;
 use std::sync::atomic::{AtomicI32, Ordering};
 
 use crate::action::{ActionKind, ActionRef};
+use crate::commands::{CommandInput, Command};
 use crate::error::{ConfigError, ConfigResult, ParseError, ParseErrorKind, ParseResult};
 use crate::util::Region;
 use crate::Cli;
@@ -93,8 +94,8 @@ enum Identifier {
     None,
 }
 
-impl FilterInput {
-    pub fn validate(&self) -> ConfigResult<FilterData> {
+impl CommandInput<FilterData> for FilterInput {
+    fn validate(&self) -> ConfigResult<FilterData> {
         let dst = if self.modify && self.src.is_some() {
             self.src.clone()
         } else {
@@ -125,7 +126,9 @@ impl FilterInput {
             kind: self.action.clone(),
         })
     }
+}
 
+impl FilterInput {
     fn get_hashes(&self, src: &str) -> ParseResult<Vec<String>> {
         let mut hashes = Vec::new();
         let input = fs::read_to_string(src).map_err(|e| ParseError::from_err(e, &src, 0))?;
@@ -153,8 +156,8 @@ impl FilterInput {
     }
 }
 
-impl FilterData {
-    pub fn run(&self, settings: &Cli) -> ParseResult<()> {
+impl Command for FilterData {
+    fn run(&self, settings: &Cli) -> ParseResult<()> {
         // TODO: No atomics?
         let passed = AtomicI32::new(0);
         let total = AtomicI32::new(0);
@@ -225,7 +228,9 @@ impl FilterData {
 
         Ok(())
     }
+}
 
+impl FilterData {
     // TODO: Improve how tokens are inputted
     // TODO: Split into individual functions
     fn is_filtered(&self, action: &ActionRef) -> bool {

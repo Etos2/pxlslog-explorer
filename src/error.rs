@@ -1,9 +1,21 @@
 use std::error;
+use std::fmt::Display;
 use std::io;
 use std::path::PathBuf;
 
 pub type ConfigResult<T> = Result<T, ConfigError>;
 pub type ParseResult<T> = Result<T, ParseError>;
+
+pub trait Terminate
+where
+    Self: Display,
+{
+    fn exitcode(&self) -> i32;
+    fn terminate(&self) -> ! {
+        eprintln!("{}", self);
+        std::process::exit(self.exitcode())
+    }
+}
 
 #[derive(Debug)]
 pub struct ConfigError {
@@ -26,8 +38,10 @@ impl ConfigError {
             reason: reason.to_owned(),
         }
     }
+}
 
-    pub fn exitcode(&self) -> i32 {
+impl Terminate for ConfigError {
+    fn exitcode(&self) -> i32 {
         exitcode::USAGE
     }
 }
@@ -75,8 +89,10 @@ impl ParseError {
         e.line = line;
         e
     }
+}
 
-    pub fn exitcode(&self) -> i32 {
+impl Terminate for ParseError {
+    fn exitcode(&self) -> i32 {
         match self.kind {
             ParseErrorKind::Io(e) => match e {
                 io::ErrorKind::NotFound => exitcode::NOINPUT,

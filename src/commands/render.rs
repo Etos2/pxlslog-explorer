@@ -3,6 +3,7 @@ use std::io::{self, Write};
 use std::path::Path;
 
 use crate::action::{ActionKind, ActionRef};
+use crate::commands::{Command, CommandInput};
 use crate::error::{ConfigError, ConfigResult, ParseError, ParseErrorKind, ParseResult};
 use crate::palette::PaletteParser;
 use crate::util::Region;
@@ -137,8 +138,8 @@ pub struct RenderData {
     palette: Vec<[u8; 4]>,
 }
 
-impl RenderInput {
-    pub fn validate(&self) -> ConfigResult<RenderData> {
+impl CommandInput<RenderData> for RenderInput {
+    fn validate(&self) -> ConfigResult<RenderData> {
         let palette = match &self.palette {
             Some(path) => PaletteParser::try_parse(&path)
                 .map_err(|e| ConfigError::new("palette", &e.to_string()))?,
@@ -165,7 +166,7 @@ impl RenderInput {
 
         let crop = Region::from_slice(&self.crop).unwrap_or(Region::all());
         let background = match &self.bg {
-            Some(path) => Self::get_background(path, &crop, self.dst.is_none())
+            Some(path) => get_background(path, &crop, self.dst.is_none())
                 .map_err(|e| ParseError::from_err(e, path, 0))
                 .map_err(|e| ConfigError::new("bg", &e.to_string()))?, // TODO: Mapping but better?
             None => match &self.size {
@@ -185,25 +186,25 @@ impl RenderInput {
             palette,
         })
     }
+}
 
-    fn get_background(path: &str, crop: &Region<u32>, transparent: bool) -> ParseResult<RgbaImage> {
-        let x = crop.start().0;
-        let y = crop.start().1;
-        let width = crop.width();
-        let height = crop.height();
-        let mut out = ImageReader::open(path)?
-            .decode()?
-            .crop(x, y, width, height)
-            .to_rgba8();
-        // Remove transparency
-        if !transparent {
-            for pixel in out.pixels_mut().filter(|p| p.0[3] == 0) {
-                *pixel = Rgba::from([0, 0, 0, 255]);
-            }
+fn get_background(path: &str, crop: &Region<u32>, transparent: bool) -> ParseResult<RgbaImage> {
+    let x = crop.start().0;
+    let y = crop.start().1;
+    let width = crop.width();
+    let height = crop.height();
+    let mut out = ImageReader::open(path)?
+        .decode()?
+        .crop(x, y, width, height)
+        .to_rgba8();
+    // Remove transparency
+    if !transparent {
+        for pixel in out.pixels_mut().filter(|p| p.0[3] == 0) {
+            *pixel = Rgba::from([0, 0, 0, 255]);
         }
-
-        Ok(out)
     }
+
+    Ok(out)
 }
 
 #[derive(Debug, Copy, Clone, ArgEnum)]
@@ -230,14 +231,15 @@ trait Renderable {
     fn render(&mut self, actions: &[ActionRef], frame: &mut RgbaImage);
 }
 
-impl RenderData {
-    pub fn run(&self, settings: &Cli) -> ParseResult<()> {
+impl Command for RenderData {
+    fn run(&self, settings: &Cli) -> ParseResult<()> {
         let stdout = io::stdout();
 
         // TODO: Clobber
         assert!(!settings.noclobber);
 
-        let data = std::fs::read_to_string(&self.src)?;
+        let data = std::fs::read_to_string(&self.src)
+            .map_err(|e| ParseError::from_err(e, &self.src, 0))?;
         let pixels: Vec<ActionRef> = data
             .as_parallel_string()
             .par_lines()
@@ -314,7 +316,9 @@ impl RenderData {
 
         Ok(())
     }
+}
 
+impl RenderData {
     // TODO: Error handling
     fn frame_to_file(frame: &RgbaImage, path: &str, i: usize) -> ParseResult<()> {
         let ext = Path::new(path)

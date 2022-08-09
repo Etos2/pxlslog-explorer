@@ -1,15 +1,16 @@
-mod error;
-mod filter;
-mod palette;
 mod action;
-mod render;
+mod commands;
+mod error;
+mod palette;
 mod util;
 
-use exitcode;
-use filter::FilterInput;
-use render::RenderInput;
+use commands::filter::FilterInput;
+use commands::render::RenderInput;
+use commands::{Command, CommandInput};
 
 use clap::{Parser, Subcommand};
+
+use crate::error::Terminate;
 
 #[derive(Parser)]
 #[clap(arg_required_else_help(true))]
@@ -61,35 +62,19 @@ fn main() {
         }
     }
 
-    let err = match &cli.input {
-        Input::Filter(filter_input) => {
-            match filter_input.validate() {
-                Ok(data) => data.run(&cli).err(),
-                Err(e) => {
-                    eprintln!("{}", e);
-                    std::process::exit(e.exitcode())
-                },
-            }
-        },
-        Input::Render(render_input) => {
-            // TODO: Fix
-            if cli.noclobber {
-                eprintln!("Invalid argument \'noclobber\': Unsupported currently");
-                std::process::exit(exitcode::USAGE)
-            }
-
-            match render_input.validate() {
-                Ok(data) => data.run(&cli).err(),
-                Err(e) => {
-                    eprintln!("{}", e);
-                    std::process::exit(e.exitcode())
-                },
-            }
-        },
+    match &cli.input {
+        Input::Filter(filter_input) => execute_command(filter_input, &cli),
+        Input::Render(render_input) => execute_command(render_input, &cli),
     };
+}
 
-    if let Some(e) = err {
-        eprintln!("{}", e);
-        std::process::exit(e.exitcode())
-    }
+fn execute_command<I, C>(input: &I, cli: &Cli)
+where
+    I: CommandInput<C>,
+    C: Command,
+{
+    match input.validate() {
+        Ok(data) => data.run(&cli).unwrap_or_else(|e| e.terminate()),
+        Err(e) => e.terminate(),
+    };
 }
