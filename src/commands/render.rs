@@ -243,7 +243,7 @@ enum StepType {
 
 impl Default for StepType {
     fn default() -> Self {
-        StepType::Pixels
+        StepType::Time
     }
 }
 
