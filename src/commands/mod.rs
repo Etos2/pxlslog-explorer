@@ -1,8 +1,9 @@
 pub mod filter;
 pub mod render;
+pub mod stats;
 
 use crate::{
-    error::{ConfigResult, ParseResult},
+    error::{ConfigResult, RuntimeResult},
     Cli,
 };
 
@@ -14,5 +15,5 @@ where
 }
 
 pub trait Command {
-    fn run(&self, settings: &Cli) -> ParseResult<()>;
+    fn run(&self, settings: &Cli) -> RuntimeResult<()>;
 }

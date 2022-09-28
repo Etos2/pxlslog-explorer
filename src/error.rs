@@ -4,7 +4,7 @@ use std::io;
 use std::path::PathBuf;
 
 pub type ConfigResult<T> = Result<T, ConfigError>;
-pub type ParseResult<T> = Result<T, ParseError>;
+pub type RuntimeResult<T> = Result<T, RuntimeError>;
 
 pub trait Terminate
 where
@@ -47,14 +47,14 @@ impl Terminate for ConfigError {
 }
 
 #[derive(Debug)]
-pub struct ParseError {
+pub struct RuntimeError {
     file: PathBuf,
     line: usize,
-    kind: ParseErrorKind,
+    kind: RuntimeErrorKind,
 }
 
 #[derive(Debug, Clone)]
-pub enum ParseErrorKind {
+pub enum RuntimeErrorKind {
     Io(io::ErrorKind),
     BadToken(String),
     UnexpectedEof,
@@ -62,27 +62,27 @@ pub enum ParseErrorKind {
     InvalidFile,
 }
 
-impl error::Error for ParseError {}
-impl ParseError {
-    pub fn new(kind: ParseErrorKind) -> ParseError {
-        ParseError {
+impl error::Error for RuntimeError {}
+impl RuntimeError {
+    pub fn new(kind: RuntimeErrorKind) -> RuntimeError {
+        RuntimeError {
             file: PathBuf::new(),
             line: 0,
             kind,
         }
     }
 
-    pub fn new_with_file(kind: ParseErrorKind, file: &str, line: usize) -> ParseError {
-        ParseError {
+    pub fn new_with_file(kind: RuntimeErrorKind, file: &str, line: usize) -> RuntimeError {
+        RuntimeError {
             file: PathBuf::from(file),
             line,
             kind,
         }
     }
 
-    pub fn from_err<E>(err: E, file: &str, line: usize) -> ParseError
+    pub fn from_err<E>(err: E, file: &str, line: usize) -> RuntimeError
     where
-        E: Into<ParseError>,
+        E: Into<RuntimeError>,
     {
         let mut e = err.into();
         e.file = PathBuf::from(file);
@@ -91,33 +91,33 @@ impl ParseError {
     }
 }
 
-impl Terminate for ParseError {
+impl Terminate for RuntimeError {
     fn exitcode(&self) -> i32 {
         match self.kind {
-            ParseErrorKind::Io(e) => match e {
+            RuntimeErrorKind::Io(e) => match e {
                 io::ErrorKind::NotFound => exitcode::NOINPUT,
                 io::ErrorKind::AlreadyExists => exitcode::CANTCREAT,
                 io::ErrorKind::PermissionDenied => exitcode::NOINPUT,
                 _ => exitcode::IOERR,
             },
-            ParseErrorKind::UnexpectedEof => exitcode::DATAERR,
-            ParseErrorKind::BadToken(_) => exitcode::DATAERR,
-            ParseErrorKind::Unsupported => exitcode::DATAERR,
-            ParseErrorKind::InvalidFile => exitcode::DATAERR,
+            RuntimeErrorKind::UnexpectedEof => exitcode::DATAERR,
+            RuntimeErrorKind::BadToken(_) => exitcode::DATAERR,
+            RuntimeErrorKind::Unsupported => exitcode::DATAERR,
+            RuntimeErrorKind::InvalidFile => exitcode::DATAERR,
         }
     }
 }
 
-impl std::fmt::Display for ParseError {
+impl std::fmt::Display for RuntimeError {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         match self.kind {
-            ParseErrorKind::InvalidFile => write!(
+            RuntimeErrorKind::InvalidFile => write!(
                 f,
                 "{}, {} contains no valid data",
                 self.kind.to_string(),
                 self.file.display(),
             ),
-            ParseErrorKind::Io(_) => write!(
+            RuntimeErrorKind::Io(_) => write!(
                 f,
                 "{} while reading {}",
                 self.kind.to_string(),
@@ -134,53 +134,53 @@ impl std::fmt::Display for ParseError {
     }
 }
 
-impl std::fmt::Display for ParseErrorKind {
+impl std::fmt::Display for RuntimeErrorKind {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         match self {
-            ParseErrorKind::Io(kind) => write!(f, "IO error ({})", kind.to_string()),
-            ParseErrorKind::BadToken(t) => write!(f, "Token \'{}\' is invalid", t),
-            ParseErrorKind::UnexpectedEof => write!(f, "Unexpected EOF"),
-            ParseErrorKind::Unsupported => write!(f, "Unsupported file"),
-            ParseErrorKind::InvalidFile => write!(f, "Invalid log"),
+            RuntimeErrorKind::Io(kind) => write!(f, "IO error ({})", kind.to_string()),
+            RuntimeErrorKind::BadToken(t) => write!(f, "Token \'{}\' is invalid", t),
+            RuntimeErrorKind::UnexpectedEof => write!(f, "Unexpected EOF"),
+            RuntimeErrorKind::Unsupported => write!(f, "Unsupported file"),
+            RuntimeErrorKind::InvalidFile => write!(f, "Invalid log"),
         }
     }
 }
 
-impl From<std::io::Error> for ParseError {
+impl From<std::io::Error> for RuntimeError {
     fn from(e: std::io::Error) -> Self {
-        ParseError::new(ParseErrorKind::Io(e.kind()))
+        RuntimeError::new(RuntimeErrorKind::Io(e.kind()))
     }
 }
 
-impl From<serde_json::Error> for ParseError {
+impl From<serde_json::Error> for RuntimeError {
     fn from(e: serde_json::Error) -> Self {
-        ParseError::new(ParseErrorKind::BadToken(e.to_string()))
+        RuntimeError::new(RuntimeErrorKind::BadToken(e.to_string()))
     }
 }
 
-impl From<hex::FromHexError> for ParseError {
+impl From<hex::FromHexError> for RuntimeError {
     fn from(e: hex::FromHexError) -> Self {
-        ParseError::new(ParseErrorKind::BadToken(e.to_string()))
+        RuntimeError::new(RuntimeErrorKind::BadToken(e.to_string()))
     }
 }
 
-impl From<chrono::ParseError> for ParseError {
+impl From<chrono::ParseError> for RuntimeError {
     fn from(e: chrono::ParseError) -> Self {
-        ParseError::new(ParseErrorKind::BadToken(e.to_string()))
+        RuntimeError::new(RuntimeErrorKind::BadToken(e.to_string()))
     }
 }
 
-impl From<std::num::ParseIntError> for ParseError {
+impl From<std::num::ParseIntError> for RuntimeError {
     fn from(e: std::num::ParseIntError) -> Self {
-        ParseError::new(ParseErrorKind::BadToken(e.to_string()))
+        RuntimeError::new(RuntimeErrorKind::BadToken(e.to_string()))
     }
 }
 
-impl From<image::ImageError> for ParseError {
+impl From<image::ImageError> for RuntimeError {
     fn from(e: image::ImageError) -> Self {
-        ParseError::new(match e {
-            image::ImageError::IoError(e) => ParseErrorKind::Io(e.kind()),
-            _ => ParseErrorKind::InvalidFile,
+        RuntimeError::new(match e {
+            image::ImageError::IoError(e) => RuntimeErrorKind::Io(e.kind()),
+            _ => RuntimeErrorKind::InvalidFile,
         })
     }
 }

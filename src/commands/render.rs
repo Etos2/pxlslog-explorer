@@ -4,7 +4,7 @@ use std::path::Path;
 
 use crate::action::{ActionKind, ActionRef};
 use crate::commands::{Command, CommandInput};
-use crate::error::{ConfigError, ConfigResult, ParseError, ParseErrorKind, ParseResult};
+use crate::error::{ConfigError, ConfigResult, RuntimeError, RuntimeErrorKind, RuntimeResult};
 use crate::palette::PaletteParser;
 use crate::util::Region;
 use crate::Cli;
@@ -92,7 +92,7 @@ pub struct RenderInput {
 }
 
 // TODO: Clean
-const PALETTE: [[u8; 4]; 32] = [
+pub const DEFAULT_PALETTE: [[u8; 4]; 32] = [
     [0, 0, 0, 255],       // Black
     [34, 34, 34, 255],    // Dark Grey
     [85, 85, 85, 255],    // Deep Grey
@@ -143,7 +143,7 @@ impl CommandInput<RenderData> for RenderInput {
         let palette = match &self.palette {
             Some(path) => PaletteParser::try_parse(&path)
                 .map_err(|e| ConfigError::new("palette", &e.to_string()))?,
-            None => PALETTE.to_vec(),
+            None => DEFAULT_PALETTE.to_vec(),
         };
 
         let mut step = self.step.unwrap_or(i64::MAX);
@@ -167,7 +167,7 @@ impl CommandInput<RenderData> for RenderInput {
         let crop = Region::from_slice(&self.crop).unwrap_or(Region::all());
         let background = match &self.bg {
             Some(path) => get_background(path, &crop, self.dst.is_none())
-                .map_err(|e| ParseError::from_err(e, path, 0))
+                .map_err(|e| RuntimeError::from_err(e, path, 0))
                 .map_err(|e| ConfigError::new("bg", &e.to_string()))?, // TODO: Mapping but better?
             None => match &self.size {
                 Some(size) => RgbaImage::from_pixel(size[0], size[1], color),
@@ -188,7 +188,7 @@ impl CommandInput<RenderData> for RenderInput {
     }
 }
 
-fn get_background(path: &str, crop: &Region<u32>, transparent: bool) -> ParseResult<RgbaImage> {
+fn get_background(path: &str, crop: &Region<u32>, transparent: bool) -> RuntimeResult<RgbaImage> {
     let x = crop.start().0;
     let y = crop.start().1;
     let width = crop.width();
@@ -232,14 +232,14 @@ trait Renderable {
 }
 
 impl Command for RenderData {
-    fn run(&self, settings: &Cli) -> ParseResult<()> {
+    fn run(&self, settings: &Cli) -> RuntimeResult<()> {
         let stdout = io::stdout();
 
         // TODO: Clobber
         assert!(!settings.noclobber);
 
         let data = std::fs::read_to_string(&self.src)
-            .map_err(|e| ParseError::from_err(e, &self.src, 0))?;
+            .map_err(|e| RuntimeError::from_err(e, &self.src, 0))?;
         let pixels: Vec<ActionRef> = data
             .as_parallel_string()
             .par_lines()
@@ -256,8 +256,8 @@ impl Command for RenderData {
             .collect();
 
         if pixels.len() == 0 {
-            Err(ParseError::new_with_file(
-                ParseErrorKind::UnexpectedEof,
+            Err(RuntimeError::new_with_file(
+                RuntimeErrorKind::UnexpectedEof,
                 &self.src,
                 0,
             ))?;
@@ -308,9 +308,9 @@ impl Command for RenderData {
 
             match &self.dst {
                 Some(path) => Self::frame_to_file(&current, &path, i)
-                    .map_err(|e| ParseError::from_err(e, &path, 0))?,
+                    .map_err(|e| RuntimeError::from_err(e, &path, 0))?,
                 None => Self::frame_to_raw(&current, &mut stdout.lock())
-                    .map_err(|e| ParseError::from_err(e, "STDOUT", 0))?,
+                    .map_err(|e| RuntimeError::from_err(e, "STDOUT", 0))?,
             }
         }
 
@@ -320,11 +320,11 @@ impl Command for RenderData {
 
 impl RenderData {
     // TODO: Error handling
-    fn frame_to_file(frame: &RgbaImage, path: &str, i: usize) -> ParseResult<()> {
+    fn frame_to_file(frame: &RgbaImage, path: &str, i: usize) -> RuntimeResult<()> {
         let ext = Path::new(path)
             .extension()
             .and_then(OsStr::to_str)
-            .ok_or(ParseError::new(ParseErrorKind::Unsupported))?;
+            .ok_or(RuntimeError::new(RuntimeErrorKind::Unsupported))?;
 
         let mut dst = path.to_owned();
         dst.truncate(dst.len() - ext.len() - 1);
@@ -334,7 +334,7 @@ impl RenderData {
         Ok(())
     }
 
-    fn frame_to_raw<R: Write>(frame: &RgbaImage, out: &mut R) -> ParseResult<()> {
+    fn frame_to_raw<R: Write>(frame: &RgbaImage, out: &mut R) -> RuntimeResult<()> {
         let buf = &frame.as_raw()[..];
         out.write_all(buf)?;
         out.flush()?;

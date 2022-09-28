@@ -5,7 +5,7 @@ use std::sync::atomic::{AtomicI32, Ordering};
 
 use crate::action::{ActionKind, ActionRef};
 use crate::commands::{CommandInput, Command};
-use crate::error::{ConfigError, ConfigResult, ParseError, ParseErrorKind, ParseResult};
+use crate::error::{ConfigError, ConfigResult, RuntimeError, RuntimeErrorKind, RuntimeResult};
 use crate::util::Region;
 use crate::Cli;
 
@@ -129,15 +129,15 @@ impl CommandInput<FilterData> for FilterInput {
 }
 
 impl FilterInput {
-    fn get_hashes(&self, src: &str) -> ParseResult<Vec<String>> {
+    fn get_hashes(&self, src: &str) -> RuntimeResult<Vec<String>> {
         let mut hashes = Vec::new();
-        let input = fs::read_to_string(src).map_err(|e| ParseError::from_err(e, &src, 0))?;
+        let input = fs::read_to_string(src).map_err(|e| RuntimeError::from_err(e, &src, 0))?;
 
         for (i, line) in input.lines().enumerate() {
             match Self::verify_hash(line) {
                 Some(hash) => hashes.push(hash.to_string()),
-                None => Err(ParseError::new_with_file(
-                    ParseErrorKind::BadToken(line.to_owned()),
+                None => Err(RuntimeError::new_with_file(
+                    RuntimeErrorKind::BadToken(line.to_owned()),
                     src,
                     i,
                 ))?,
@@ -157,7 +157,7 @@ impl FilterInput {
 }
 
 impl Command for FilterData {
-    fn run(&self, settings: &Cli) -> ParseResult<()> {
+    fn run(&self, settings: &Cli) -> RuntimeResult<()> {
         // TODO: No atomics?
         let passed = AtomicI32::new(0);
         let total = AtomicI32::new(0);
@@ -193,7 +193,7 @@ impl Command for FilterData {
                 }
                 Err(e) => {
                     if settings.verbose {
-                        eprintln!("{}", ParseError::from_err(e, &filename, 0));
+                        eprintln!("{}", RuntimeError::from_err(e, &filename, 0));
                     }
                     None
                 } // TODO

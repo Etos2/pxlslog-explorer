@@ -6,6 +6,7 @@ mod util;
 
 use commands::filter::FilterInput;
 use commands::render::RenderInput;
+use commands::stats::StatisticInput;
 use commands::{Command, CommandInput};
 
 use clap::{Parser, Subcommand};
@@ -41,6 +42,7 @@ pub struct Cli {
 pub enum Input {
     Filter(FilterInput),
     Render(RenderInput),
+    Stats(StatisticInput),
 }
 
 fn main() {
@@ -65,6 +67,7 @@ fn main() {
     match &cli.input {
         Input::Filter(filter_input) => execute_command(filter_input, &cli),
         Input::Render(render_input) => execute_command(render_input, &cli),
+        Input::Stats(stats_input) => execute_command(stats_input, &cli),
     };
 }
 
