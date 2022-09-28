@@ -55,8 +55,12 @@ pub struct RenderInput {
     style: Option<RenderType>,
     #[clap(long)]
     #[clap(value_name("LONG"))]
-    #[clap(help = "Time between frames (0 is max)")]
+    #[clap(help = "Time or pixels between frames (0 is max)")]
     step: Option<i64>,
+    #[clap(long, arg_enum)]
+    #[clap(value_name("ENUM"))]
+    #[clap(help = "Whether step represents time or pixels")]
+    step_type: Option<StepType>,
     #[clap(long)]
     #[clap(value_name("INT"))]
     #[clap(help = "Skip specified frames")]
@@ -134,6 +138,7 @@ pub struct RenderData {
     background: RgbaImage,
     style: RenderType,
     step: i64,
+    step_type: StepType,
     skip: usize,
     palette: Vec<[u8; 4]>,
 }
@@ -150,6 +155,8 @@ impl CommandInput<RenderData> for RenderInput {
         if step == 0 {
             step = i64::MAX;
         }
+
+        let step_type = self.step_type.unwrap_or_default();
 
         let mut skip = self.skip.unwrap_or(0);
         if self.screenshot {
@@ -182,6 +189,7 @@ impl CommandInput<RenderData> for RenderInput {
             background,
             style: self.style.unwrap_or(RenderType::Normal),
             step,
+            step_type,
             skip,
             palette,
         })
@@ -224,6 +232,18 @@ enum RenderType {
 impl Default for RenderType {
     fn default() -> Self {
         RenderType::Normal
+    }
+}
+
+#[derive(Debug, Copy, Clone, ArgEnum)]
+enum StepType {
+    Time,
+    Pixels,
+}
+
+impl Default for StepType {
+    fn default() -> Self {
+        StepType::Time
     }
 }
 
@@ -292,7 +312,7 @@ impl Command for RenderData {
             }
         };
 
-        let frames = Self::get_frame_slices(&pixels, self.step);
+        let frames = Self::get_frame_slices(&pixels, self.step, self.step_type);
         let mut current = self.background.clone();
 
         if settings.verbose {
@@ -344,21 +364,36 @@ impl RenderData {
     fn get_frame_slices<'a>(
         pixels: &'a [ActionRef],
         step: i64,
+        step_type: StepType,
     ) -> Vec<Option<&'a [ActionRef<'a>]>> {
         let mut frames: Vec<Option<&[ActionRef]>> = vec![];
         let mut start = 0;
 
         frames.push(None);
         if step != 0 {
-            for (end, pair) in pixels.windows(2).enumerate() {
-                // TODO: Diff could be negative
-                let diff =
-                    pair[1].time.timestamp_millis() / step - pair[0].time.timestamp_millis() / step;
-                if diff > 0 {
-                    frames.push(Some(&pixels[start..=end]));
-                    start = end;
-                    for _ in 1..diff {
-                        frames.push(None);
+            match step_type {
+                StepType::Time => {
+                    for (end, pair) in pixels.windows(2).enumerate() {
+                        let start_time = pair[0].time.timestamp_millis() / step;
+                        let end_time = pair[1].time.timestamp_millis() / step;
+                        // TODO: Diff could be negative
+                        let diff = end_time - start_time;
+                        if diff > 0 {
+                            frames.push(Some(&pixels[start..=end]));
+                            start = end;
+                            for _ in 1..diff {
+                                frames.push(None);
+                            }
+                        }
+                    }
+                },
+                StepType::Pixels => {
+                    let step = usize::try_from(step).unwrap();
+                    for (end, _pair) in pixels.windows(2).enumerate() {
+                        if end - start >= step {
+                            frames.push(Some(&pixels[start..=end]));
+                            start = end;
+                        }
                     }
                 }
             }
