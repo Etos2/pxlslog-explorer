@@ -3,7 +3,7 @@ use std::io::prelude::*;
 use std::path::Path;
 use std::sync::atomic::{AtomicI32, Ordering};
 
-use crate::action::{ActionKind, ActionRef};
+use crate::action::{ActionKind, ActionRef, IdentifierRef};
 use crate::commands::{CommandInput, Command};
 use crate::error::{ConfigError, ConfigResult, RuntimeError, RuntimeErrorKind, RuntimeResult};
 use crate::util::Region;
@@ -149,9 +149,9 @@ impl FilterInput {
 
     fn verify_hash(hash: &str) -> Option<&str> {
         if hash.len() == 512 {
-            None
-        } else {
             Some(hash)
+        } else {
+            None
         }
     }
 }
@@ -261,8 +261,8 @@ impl FilterData {
         }
         // Skip if line didn't pass (Hashing is expen$ive)
         if out == true {
-            match &self.users {
-                Identifier::Hash(hashes) => {
+            match (&self.users, &action.user) {
+                (Identifier::Hash(hashes), IdentifierRef::Hash(user)) => {
                     let mut temp = false;
                     let time = action.time.format("%Y-%m-%d %H:%M:%S,%3f").to_string();
                     for hash in hashes {
@@ -276,15 +276,16 @@ impl FilterData {
                         hasher.update(action.index.to_string().as_bytes());
                         hasher.update(",");
                         hasher.update(hash.as_bytes());
-                        let digest = hex::encode(hasher.finalize());
-                        temp |= &digest[..] == hash;
+                        let raw = hasher.finalize();
+                        let digest = hex::encode(raw);
+                        temp |= &digest[..] == *user;
                     }
                     out &= temp;
                 }
-                Identifier::Username(_) => {
+                (Identifier::Username(_), IdentifierRef::Username(_)) => {
                     todo!()
                 }
-                Identifier::None => (),
+                _ => (),
             }
         }
         out
