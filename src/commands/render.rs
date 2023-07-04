@@ -164,7 +164,7 @@ impl CommandInput<RenderData> for RenderInput {
         }
 
         let color = match &self.color {
-            Some(color) => Rgba::from_slice(color).clone(),
+            Some(color) => *Rgba::from_slice(color),
             None => match self.dst {
                 Some(_) => Rgba::from([0, 0, 0, 255]),
                 None => Rgba::from([0, 0, 0, 0]),
@@ -203,8 +203,9 @@ fn get_background(path: &str, crop: &Region<u32>, transparent: bool) -> RuntimeR
     let height = crop.height();
     let mut out = ImageReader::open(path)?
         .decode()?
-        .crop(x, y, width, height)
+        .crop_imm(x, y, width, height)
         .to_rgba8();
+
     // Remove transparency
     if !transparent {
         for pixel in out.pixels_mut().filter(|p| p.0[3] == 0) {
@@ -264,8 +265,10 @@ impl Command for RenderData {
             .as_parallel_string()
             .par_lines()
             .filter_map(|s| match ActionRef::try_from(s) {
-                Ok(a) => {
+                Ok(mut a) => {
                     if self.crop.contains(a.x, a.y) {
+                        a.x -= self.crop.start().0;
+                        a.y -= self.crop.start().1;
                         Some(a)
                     } else {
                         None
@@ -275,7 +278,7 @@ impl Command for RenderData {
             })
             .collect();
 
-        if pixels.len() == 0 {
+        if pixels.is_empty() {
             Err(RuntimeError::new_with_file(
                 RuntimeErrorKind::UnexpectedEof,
                 &self.src,
