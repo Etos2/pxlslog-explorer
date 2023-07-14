@@ -1,7 +1,6 @@
 use std::path::PathBuf;
 
 use chrono::NaiveDateTime;
-use chrono::format::format;
 use clap::builder::PossibleValue;
 use clap::{Args, Parser, ValueEnum};
 use common::data::action::Index;
@@ -13,6 +12,7 @@ use common::util::region::Region;
 #[derive(Parser, Debug, Clone)]
 #[clap(about = "Filter logs and outputs to new file", long_about = None)]
 #[clap(arg_required_else_help(true))]
+#[clap(allow_hyphen_values = true)]
 pub struct ProgramArgs {
     #[arg(long, short, value_name("PATH"))]
     #[arg(help = "Source log file")]

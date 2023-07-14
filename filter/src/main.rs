@@ -49,7 +49,7 @@ fn main() -> ProgramResult<()> {
                 }
             }
             Err(e) => {
-                warn!("{e} @ line {}", lines_read);
+                warn!("{e} @ line {}", lines_read + 1);
                 warn!("Str: {line:?}");
                 lines_errored += 1;
             }
@@ -61,7 +61,7 @@ fn main() -> ProgramResult<()> {
     info!("Read:    {lines_read}");
     info!("Wrote:   {lines_written}");
     info!("Removed: {lines_removed}");
-    info!("Errored: {lines_errored}");
+    info!("Invalid: {lines_errored}");
 
     Ok(())
 }
