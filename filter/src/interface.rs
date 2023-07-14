@@ -3,7 +3,7 @@ use std::path::PathBuf;
 use chrono::NaiveDateTime;
 use clap::builder::PossibleValue;
 use clap::{Args, Parser, ValueEnum};
-use common::action::ActionKind;
+use common::data::actionkind::ActionKind;
 use common::util::region::Region;
 
 // TODO: Custom handling of specific types (e.g. region)
@@ -14,7 +14,7 @@ use common::util::region::Region;
 pub struct ProgramArgs {
     #[arg(long, short, value_name("PATH"))]
     #[arg(help = "Source log file")]
-    pub input: Option<PathBuf>,
+    pub log: Option<PathBuf>,
     #[arg(long, short, value_name("PATH"))]
     #[arg(help = "Destination log file")]
     pub output: Option<PathBuf>,

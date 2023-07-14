@@ -10,11 +10,11 @@ use std::{
 
 use clap::Parser;
 
-use common::action::Action;
+use common::data::action::Action;
 use error::{Error, ProgramResult};
 use filter::FilterPredicates;
 use interface::ProgramArgs;
-use log::{info, SetLoggerError};
+use log::{info, warn, SetLoggerError};
 use simplelog::{ConfigBuilder, LevelFilter, WriteLogger};
 
 fn main() -> ProgramResult<()> {
@@ -27,7 +27,7 @@ fn main() -> ProgramResult<()> {
         config_logger(args.verbose)?;
     }
 
-    let src_handle = get_reader(args.input.as_deref())?;
+    let src_handle = get_reader(args.log.as_deref())?;
     let mut dst_handle = get_writer(args.output.as_deref())?;
 
     let filters = FilterPredicates::try_from(settings)?;
@@ -36,12 +36,15 @@ fn main() -> ProgramResult<()> {
 
     for line in src_handle.lines() {
         let line = line?;
-        let action = Action::try_from(line.as_str())?;
-
-        if filters.eval(&action) {
-            let action_str = action.to_string() + "\n";
-            dst_handle.write_all(action_str.as_bytes())?;
-            lines_written += 1;
+        match Action::try_from(line.as_str()) {
+            Ok(action) => {
+                if filters.eval(&action) {
+                    let action_str = action.to_string() + "\n";
+                    dst_handle.write_all(action_str.as_bytes())?;
+                    lines_written += 1;
+                }
+            }
+            Err(e) => warn!("{e} @ {}", lines_read),
         }
 
         lines_read += 1;

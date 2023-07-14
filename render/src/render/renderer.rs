@@ -6,7 +6,7 @@ use super::frame::{DynamicFrame, VideoFrame};
 use super::gradient::Gradient;
 use super::pixel::{Pixel, Rgba};
 use crate::palette::Palette;
-use common::action::{Action, ActionKind};
+use common::data::{action::Action, actionkind::ActionKind};
 
 const ACTIVITY_GRADIENT: [Rgba; 9] = [
     Rgba([11, 21, 97, 255]),

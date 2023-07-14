@@ -11,7 +11,7 @@ use std::{
 
 use chrono::NaiveDateTime;
 use clap::Parser;
-use common::action::Action;
+use common::data::action::Action;
 use config::{
     builder::BuilderOverride, source::cli::CliData, source::toml::read_toml, source::ConfigSource,
 };
@@ -20,36 +20,6 @@ use rayon::ThreadPoolBuilder;
 use toml::Table;
 
 use crate::render::RenderCommand;
-
-fn main2() -> anyhow::Result<()> {
-    // let app = App::from_env()?;
-    // app.config_logging()?;
-    // app.config_threadpool()?;
-
-    // log::debug!("{:?}", app);
-    // log::info!("Running with {} threads", app.config.threads);
-
-    // eprintln!("{:?}", app);
-
-    // app.run_all()?;
-
-    // let file = std::fs::read_to_string(&args.src)
-    //     .with_context(|| format!("Failed to open file {}", &args.src.display()))?;
-    // let actions: Vec<_> = file
-    //     .as_parallel_string()
-    //     .lines()
-    //     .filter_map(|line| Action::try_from(line).ok())
-    //     .map(|mut action| {
-    //         action.user = action.user.to_owned();
-    //         action
-    //     })
-    //     .collect();
-
-    // let mut render = RenderCommand::from_args(render_args)?;
-    // render.execute(settings.dst.as_deref(), actions.into_iter())?;
-
-    Ok(())
-}
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args = CliData::parse();

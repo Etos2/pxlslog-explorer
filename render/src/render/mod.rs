@@ -12,18 +12,15 @@ use crate::config::{DestinationKind, MethodKind, PaletteSource, RenderConfig};
 use crate::error::RuntimeError;
 use crate::palette::{Palette, PaletteParser, DEFAULT_PALETTE};
 use crate::render::pixel::Pixel;
-use crate::util::io::Destination;
-use crate::util::region::Region;
 
-use anyhow::Context;
-use common::action::Action;
+use common::data::action::Action;
 use image::io::Reader as ImageReader;
-use image::{imageops, DynamicImage, ImageBuffer};
+use image::{imageops, ImageBuffer};
 use itertools::Itertools;
 use nonzero_ext::nonzero;
 
 use self::frame::{DynamicFrame, VideoFrame};
-use self::pixel::{Rgb, Rgba};
+use self::pixel::Rgb;
 use self::renderer::{
     ActionRenderer, RendererAction, RendererActivity, RendererAge, RendererCombined, RendererHeat,
     RendererNormal, RendererPlacement, RendererVirgin,

@@ -1,7 +1,7 @@
 use std::fmt::Display;
 
 use chrono::NaiveDateTime;
-use common::action::DATE_FMT;
+use common::data::DATE_FMT;
 use image::ImageError;
 use nom_supreme::{error::ErrorTree, final_parser::Location};
 use thiserror::Error;

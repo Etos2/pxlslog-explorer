@@ -1,8 +1,11 @@
-use common::action::{identifier::Identifier, Action};
+use common::data::{action::Action, identifier::Identifier};
 use predicates::{prelude::*, BoxPredicate};
 use sha2::{Digest, Sha256};
 
-use crate::{interface::{FilterArgs, UserIdentifier}, error::Error};
+use crate::{
+    error::Error,
+    interface::{FilterArgs, UserIdentifier},
+};
 
 // TODO: Fixed predicates
 // TODO: Vec of comp types
