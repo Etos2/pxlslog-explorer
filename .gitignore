@@ -1,8 +1,7 @@
 /target
-/logs
-/out
-/canvas
-/palette
+/data
+/spec
 /.vscode
+/templates
 Cargo.lock
 *.sh

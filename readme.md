@@ -4,8 +4,6 @@ Designed for pxls.space users to explore their personal logs or generate pretty 
 Forgot where the logs are? They're right [here](https://pxls.space/x/logs/). Your personal hashes are located on your profile page.
 
 ### Current features:
-- Simple program settings
-  - Disable overwritting existing files
 - Filter entries to file (Defaults to STDOUT)
   - Via provided date (Format: %Y-%m-%dT%H:%M:%S%.f)
   - Via colour index
@@ -18,10 +16,14 @@ Forgot where the logs are? They're right [here](https://pxls.space/x/logs/). You
   - Can pipe raw RGBA video data (e.g. ffmpeg)
   - Supports multiple styles (e.g. heat, virgin, activity, etc)
   - Can import custom palettes (.gpl, .aco, .csv, .txt (paint.NET)) including directly from [pxls](https://pxls.space/info)
-  - Crop to specified size
+  - Render with specific size
+- Simple program settings
+  - Disable overwritting existing files
+  - Quit immediately on soft errors
+  - Easily simulate a command and observe results
 
-## Help
-To get on track, seek the help argument.
+## Basic usage
+To get on track, use the help argument.
 This will list basic arguments and display available subcommands.
 Alternatively, use on a subcommand to display arguments for the subcommand.
 
@@ -31,23 +33,38 @@ pxlslog-explorer.exe filter --help
 pxlslog-explorer.exe render --help
 ```
 
-## Filter
-The filter subcommand is quite simple, follow the syntax hints for tricky filters such as "--after", "--before" and "--region".
-Be wary with many filters applied, it can be quite messy:
-
+The basic command layout is as follows:
 ```
-// Print straight to STDOUT
-pxlslog-explorer.exe filter pixels_cXX.sanit.log
+pxlslog-explorer.exe --src [OPTIONS] --src <PATH> [COMMAND] <args>
+pxlslog-explorer.exe --src [OPTIONS] --src <PATH> filter [OPTIONS] [COMMAND] <args>
+```
 
-// Write to mypixels_cXX.log when color == 5
-pxlslog-explorer.exe filter --color 5 pixels_cXX.sanit.log mypixels_cXX.log
+## Filter
+The filter subcommand is an **optional** command to remove undesired actions with multiple filters.
+Each filter can accept multiple arguments, follow the syntax hints for tricky filters such as "--after", "--before" and "--region".
+Be wary when using many filters, it can be quite messy:
 
-// Write to mypixels2_cXX.log when equal to hash and action = undo
-pxlslog-explorer.exe filter --action undo --user (insert hash here) pixels_cXX.sanit.log mypixels2_cXX.log
+Arg | Arg type | Result
+--- | --- | ---
+--after | TIMESTAMP | Only include actions after this date
+--before | TIMESTAMP | Only include actions before this date
+--color | INT | Only include actions with this color
+--region | INT INT INT INT | Only include actions within this area
+--user | STRING | Only include actions from these users
+--user-src | PATH | Only include actions from these users, specified in a file seperated by newlines
+--action | ENUM | Only include actions that are of a particular type [place, undo, overwrite, rollback, rollback-undo, nuke]
+
+Examples:
+```
+// Write to file when color == 5
+pxlslog-explorer.exe --src pixels_cXX.sanit.log filter --color 5 --dst mypixels_cXX.log
+
+// Write to file action belongs to user and is of type UNDO
+pxlslog-explorer.exe --src pixels_cXX.sanit.log filter --action undo --user Etos2 --dst mypixels_cXX.log
 ```
 
 ## Render
-The render subcommand accepts a log file and produces frames in the desired format. However it can also produce a single complete frame.
+The render subcommand produces frames in the desired format. This can be used to generate full timelapses or a single image of the final canvas.
 A palette can also be provided, either from raw json found [here](https://pxls.space/info) or palette files found [here](https://pxls.space/x/palette) [.gpl, .aco, .csv, .txt (paint.NET)].
 See the [image](https://crates.io/crates/image) crate for supported image formats.
 
@@ -57,33 +74,34 @@ The following styles are supported:
 - Virgin:       Simulate pxls virgin map 
 - Activity:     Generate a heat map indicating most active pixels
 - Action:       Map pixel type to color (Magenta = Undo, Blue = Place, Cyan = Mod Overwrite, Green = Rollback, Yellow = Rollback undo, Red = Nuke)
-- Milliseconds: Map pixel placement time within a second to a color, smooth regions indicate bot-like behaviour
-- Seconds:      Map pixel placement time within a minute to a color
-- Minutes:      Map pixel placement time within a hour to a color, gradient indicates placement direction
-- Combined:     Above methods combined into one, smooth rainbows indicate bot-like behaviour
-- Age:          Generate a brightness map, where darker pixels are older pixels
+- Milliseconds: Map pixel placement time within a millisecond to a color
+- Seconds:      Map pixel placement time within a second to a color
+- Minutes:      Map pixel placement time within a minute to a color
+- Combined:     Above methods combined into a single render
+- Age:          Generate a brightness map, where darker pixels are older
 
+Examples:
 ```
 // Using background as source, produce a frame every 5 minutes in the PNG format
-pxlslog-explorer.exe render -s pixels_cXX.sanit.log -d cXX.png --bg cXX.png --step 300000
+pxlslog-explorer.exe render -s pixels_cXX.sanit.log -d cXX.png --bg cXX.png --step 5m normal
 
-// Or, produce a single frame
-pxlslog-explorer.exe render -s pixels_cXX.sanit.log -d cXX.png --bg cXX.png --screenshot
+// Or, produce a single frame of the final state
+pxlslog-explorer.exe render -s pixels_cXX.sanit.log -d cXX.png --bg cXX.png --screenshot normal
 
 // Or, use a different style
-pxlslog-explorer.exe render -s pixels_cXX.sanit.log -d cXX.png --bg cXX.png --screenshot --type virgin
+pxlslog-explorer.exe render -s pixels_cXX.sanit.log -d cXX.png --bg cXX.png --screenshot virgin
 
 // You can also provide a custom palette.
-pxlslog-explorer.exe render -s pixels_cXX.sanit.log -d cXX.png --bg cXX.png --screenshot --palette p10.gpl
+pxlslog-explorer.exe render -s pixels_cXX.sanit.log -d cXX.png --bg cXX.png --screenshot --palette p10.gpl normal
 
-// Additionally, crop frames without needing to modify logs or other shenanigans
-pxlslog-explorer.exe render -s pixels_cXX.sanit.log -d cXX.png --bg cXX.png --screenshot --crop x y width height
+// Additionally, define the area of the render
+pxlslog-explorer.exe render -s pixels_cXX.sanit.log -d cXX.png --bg cXX.png --screenshot --region x y width height normal
 ```
 
-Additionally, frames can be piped to other programs via STDOUT to produce a video. This has only been tested with ffmpeg.
-(Note that you need to specify the resolution)
+Additionally, frames can be piped to other programs via STDOUT to produce a video. This has only been tested with ffmpeg so far.
+Note that you need to specify the resolution in this example.
 ```
-pxlslog-explorer.exe render -s pixels_cXX.sanit.log --bg cXX.png --step 300000 | ffmpeg -f rawvideo -pixel_format rgba -video_size widthxheight -i pipe:0 ...
+pxlslog-explorer.exe render -s pixels_cXX.sanit.log --bg cXX.png --step 5m  normal | ffmpeg -f rawvideo -pixel_format rgba -video_size <WIDTH>x<HEIGHT> -i pipe:0 ...
 ```
 
 ## The future
