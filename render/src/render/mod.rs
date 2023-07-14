@@ -8,7 +8,7 @@ use std::io::{BufWriter, Write};
 use std::num::NonZeroI64;
 use std::path::Path;
 
-use crate::config::{RenderConfig, PaletteSource};
+use crate::config::{DestinationKind, MethodKind, PaletteSource, RenderConfig};
 use crate::error::RuntimeError;
 use crate::palette::{Palette, PaletteParser, DEFAULT_PALETTE};
 use crate::render::pixel::Pixel;
@@ -31,39 +31,49 @@ use self::renderer::{
 
 #[derive(Debug)]
 pub struct RenderCommand {
-    destination: Destination,
+    destination: DestinationKind,
     step: Step,
     skip: usize,
     offset: (u32, u32),
     background: DynamicFrame,
     palette: Palette,
-    method: RenderMethod,
+    method: MethodKind,
 }
 
 impl RenderCommand {
     // TODO: Respect image type
     pub fn new(config: RenderConfig, bounds: (u32, u32, u32, u32)) -> Result<Self, RuntimeError> {
         let size = config.canvas.size.unwrap_or(bounds);
-        let background = match config.canvas.source {
+
+        let (background, offset) = match config.canvas.source {
             Some(path) => {
                 let image = ImageReader::open(path)?.decode()?;
-                if image.width() > size.2 - size.0 || image.height() > size.3 - size.1 {
+                if image.width() < size.2 - size.0 || image.height() < size.3 - size.1 {
                     let mut temp = ImageBuffer::from_pixel(
                         size.2 - size.0,
                         size.3 - size.1,
                         Rgb([255, 255, 255]).into(),
                     );
                     imageops::overlay(&mut temp, &image, 0, 0);
-                    DynamicFrame::from_image(config.destination.format, temp.into())
+                    (
+                        DynamicFrame::from_image(config.destination.format, temp.into()),
+                        (0, 0),
+                    )
                 } else {
-                    DynamicFrame::from_image(config.destination.format, image)
+                    (
+                        DynamicFrame::from_image(config.destination.format, image),
+                        (0, 0),
+                    )
                 }
             }
-            None => DynamicFrame::from_pixel(
-                config.destination.format,
-                size.2 - size.0,
-                size.3 - size.1,
-                Rgb([255, 255, 255]),
+            None => (
+                DynamicFrame::from_pixel(
+                    config.destination.format,
+                    size.2 - size.0,
+                    size.3 - size.1,
+                    Rgb([255, 255, 255]),
+                ),
+                (size.0, size.1),
             ),
         };
 
@@ -77,14 +87,17 @@ impl RenderCommand {
             DEFAULT_PALETTE.to_vec()
         };
 
+        eprintln!("{:?}", background.dimensions());
+        eprintln!("{:?}", offset);
+
         Ok(Self {
-            destination: todo!(),
+            destination: config.destination.kind,
             step: config.step,
             skip: 0,
-            offset: todo!(),
+            offset,
             background,
             palette,
-            method: todo!(),
+            method: config.method.kind,
         })
     }
 
@@ -94,55 +107,54 @@ impl RenderCommand {
     // TODO (Etos2): Replace reader with smarter type (IntoActionBatch?)
     // TODO (Etos2): Replace format with appriorate enum
     pub fn run<'a>(&self, actions: impl Iterator<Item = &'a Action>) -> anyhow::Result<()> {
-        let offset = self.offset;
         let actions_iter = actions.cloned().map(|mut a| {
-            a.x -= offset.0;
-            a.y -= offset.1;
+            a.x -= self.offset.0;
+            a.y -= self.offset.1;
             a
         });
 
         // TODO (Etos2): Reduce boilerplate
         match self.method {
-            RenderMethod::Normal => {
+            MethodKind::Normal => {
                 // TODO: Remove clones?
-                // let renderer = RendererNormal::new(self.background.clone(), self.palette.clone());
-                // self.render(renderer, actions_iter, self.destination)?;
+                let renderer = RendererNormal::new(self.background.clone(), self.palette.clone());
+                self.render(renderer, actions_iter)?;
             }
-            RenderMethod::Heat(window) => {
+            MethodKind::Heatmap(window) => {
                 let (width, height) = self.background.dimensions();
                 let renderer = RendererHeat::new(width, height, self.step.get(), window.into());
                 self.render(renderer, actions_iter)?;
             }
-            RenderMethod::Virgin => {
+            MethodKind::Virgin => {
                 let renderer = RendererVirgin {};
                 self.render(renderer, actions_iter)?;
             }
-            RenderMethod::Activity => {
+            MethodKind::Activity => {
                 let (width, height) = self.background.dimensions();
                 let renderer = RendererActivity::new(width, height);
                 self.render(renderer, actions_iter)?;
             }
-            RenderMethod::Action => {
+            MethodKind::Action => {
                 let renderer = RendererAction {};
                 self.render(renderer, actions_iter)?;
             }
-            RenderMethod::Milliseconds => {
+            MethodKind::Milliseconds => {
                 let renderer = RendererPlacement::new([255, 0, 0, 255].into(), 1000);
                 self.render(renderer, actions_iter)?;
             }
-            RenderMethod::Seconds => {
+            MethodKind::Seconds => {
                 let renderer = RendererPlacement::new([0, 255, 0, 255].into(), 60000);
                 self.render(renderer, actions_iter)?;
             }
-            RenderMethod::Minutes => {
+            MethodKind::Minutes => {
                 let renderer = RendererPlacement::new([0, 0, 255, 255].into(), 3600000);
                 self.render(renderer, actions_iter)?;
             }
-            RenderMethod::Combined => {
+            MethodKind::Combined => {
                 let renderer = RendererCombined {};
                 self.render(renderer, actions_iter)?;
             }
-            RenderMethod::Age => {
+            MethodKind::Age => {
                 let (width, height) = self.background.dimensions();
                 let renderer = RendererAge::new(width, height);
                 self.render(renderer, actions_iter)?;
@@ -158,25 +170,28 @@ impl RenderCommand {
         actions: impl Iterator<Item = Action>,
     ) -> anyhow::Result<()> {
         let mut background = self.background.clone();
+        // TODO: implement some form of Into<> for DestinationKind for output to avoid match
+        // TODO: This may involve checking if destination has trait Seek
         match (&mut background, &self.destination) {
-            (DynamicFrame::Rgba(rgba_frame), Destination::Stdout) => {
+            (DynamicFrame::Rgba(rgba_frame), DestinationKind::Stdout) => {
                 Self::render_to_raw(renderer, actions, rgba_frame, self.step)
             }
-            (DynamicFrame::Rgba(rgba_frame), Destination::File(dst)) => {
+            (DynamicFrame::Rgba(rgba_frame), DestinationKind::File(dst)) => {
                 Self::render_to_file(renderer, actions, dst, rgba_frame, self.step)
             }
-            (DynamicFrame::Rgb(rgb_frame), Destination::Stdout) => {
+            (DynamicFrame::Rgb(rgb_frame), DestinationKind::Stdout) => {
                 Self::render_to_raw(renderer, actions, rgb_frame, self.step)
             }
-            (DynamicFrame::Rgb(rgb_frame), Destination::File(dst)) => {
+            (DynamicFrame::Rgb(rgb_frame), DestinationKind::File(dst)) => {
                 Self::render_to_file(renderer, actions, dst, rgb_frame, self.step)
             }
-            (DynamicFrame::Yuv420p(yuv420p_frame), Destination::Stdout) => {
+            (DynamicFrame::Yuv420p(yuv420p_frame), DestinationKind::Stdout) => {
                 Self::render_to_raw(renderer, actions, yuv420p_frame, self.step)
             }
-            (DynamicFrame::Yuv420p(yuv420p_frame), Destination::File(dst)) => {
+            (DynamicFrame::Yuv420p(yuv420p_frame), DestinationKind::File(dst)) => {
                 Self::render_to_file(renderer, actions, dst, yuv420p_frame, self.step)
             }
+            (_, _) => unimplemented!(),
         }
     }
 
@@ -226,6 +241,8 @@ impl RenderCommand {
         step: Step,
     ) -> anyhow::Result<()> {
         let (width, height) = frame.dimensions();
+
+        eprintln!("Rendering");
 
         match step {
             Step::Time(millis_per_frame) => {

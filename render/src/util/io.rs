@@ -1,4 +1,4 @@
-use std::{path::PathBuf, str::FromStr};
+use std::{path::{PathBuf, Path}, str::FromStr};
 
 const SOURCE_ALIAS: [&str; 2] = ["pipe:0", "stdin"];
 const DESTINATION_ALIAS: [&str; 2] = ["pipe:1", "stdout"];
@@ -61,4 +61,40 @@ impl Default for Destination {
     fn default() -> Self {
         Destination::Stdout
     }
+}
+
+pub fn is_file(path: impl AsRef<Path>) -> Result<(), std::io::Error> {
+    let path = path.as_ref();
+    let meta = std::fs::metadata(path)?;
+
+    if !meta.is_file() {
+        // TODO: change to std::io::ErrorKind::IsADirectory when stabilised
+        Err(std::io::Error::new(
+            std::io::ErrorKind::Other,
+            "expected file",
+        ))?
+    }
+
+    Ok(())
+}
+
+pub fn is_dir(path: impl AsRef<Path>) -> Result<(), std::io::Error> {
+    let path = path.as_ref();
+    let meta = std::fs::metadata(path)?;
+
+    if !meta.is_dir() {
+        // TODO: change to std::io::ErrorKind::IsADirectory when stabilised
+        Err(std::io::Error::new(
+            std::io::ErrorKind::Other,
+            "expected directory",
+        ))?
+    }
+
+    Ok(())
+}
+
+pub fn is_file_or_dir(path: impl AsRef<Path>) -> Result<(), std::io::Error> {
+    let path = path.as_ref();
+    path.try_exists()?;
+    Ok(())
 }

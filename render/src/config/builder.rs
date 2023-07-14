@@ -1,15 +1,18 @@
-use std::{ffi::OsStr, path::PathBuf};
+use std::{
+    ffi::OsStr,
+    path::PathBuf,
+};
 
 use itertools::{izip, Itertools};
 
 use super::{
-    error::{ConfigError, ConfigValue, InvalidPathKind},
+    error::{ConfigError, ConfigValue},
     CanvasConfig, DestinationConfig, DestinationKind, MethodConfig, MethodKind, PaletteSource,
     PixelFormat, ProgramConfig, RenderConfig,
 };
 use crate::{
     render::{pixel::Rgba, Step},
-    util::io::Source,
+    util::io::{Source, self},
 };
 
 // TODO: Verify if true + verify transparency support
@@ -62,19 +65,9 @@ pub struct ProgramConfigBuilder {
 impl ProgramConfigBuilder {
     fn build(self) -> Result<ProgramConfig, ConfigError> {
         if let Some(Source::File(path)) = &self.log_source {
-            if !path.exists() {
-                Err(ConfigError::new_invalid_path(
-                    ConfigValue::ProgramLogSource,
-                    path.clone(),
-                    InvalidPathKind::NotFound,
-                ))?
-            } else if path.is_dir() {
-                Err(ConfigError::new_invalid_path(
-                    ConfigValue::ProgramLogSource,
-                    path.clone(),
-                    InvalidPathKind::NotFile,
-                ))?
-            }
+            io::is_file(path).map_err(|e| {
+                ConfigError::Io(ConfigValue::ProgramLogSource, path.to_path_buf(), e)
+            })?;
         }
 
         Ok(ProgramConfig {
@@ -178,7 +171,9 @@ impl RenderConfigBuilder {
                 Err(ConfigError::new_infer(ConfigValue::DestinationFormat))?
             }
         } else {
-            err_values.push(ConfigValue::DestinationKind)
+            eprintln!("Infered output was piped to STDOUT");
+            self.destination_kind = Some(DestinationKind::Stdout);
+           // err_values.push(ConfigValue::DestinationKind)
         }
 
         if self.destination_format.is_none() {
@@ -193,30 +188,16 @@ impl RenderConfigBuilder {
     }
 
     fn check_paths(&self) -> Result<(), ConfigError> {
-            if let Some(DestinationKind::Dir(path)) = &self.destination_kind {
-                    if !path.exists() {
-                        Err(ConfigError::new_invalid_path(
-                            ConfigValue::DestinationKind,
-                            path.clone(),
-                            InvalidPathKind::NotFound,
-                        ))?
-                    }
-            }
+        if let Some(DestinationKind::Dir(path)) = &self.destination_kind {
+            io::is_file_or_dir(path).map_err(|e| {
+                ConfigError::Io(ConfigValue::DestinationKind, path.to_path_buf(), e)
+            })?;
+        }
 
         if let Some(path) = &self.canvas_source {
-            if !path.exists() {
-                Err(ConfigError::new_invalid_path(
-                    ConfigValue::CanvasBackgroundSource,
-                    path.clone(),
-                    InvalidPathKind::NotFound,
-                ))?
-            } else if path.is_dir() {
-                Err(ConfigError::new_invalid_path(
-                    ConfigValue::CanvasBackgroundSource,
-                    path.clone(),
-                    InvalidPathKind::NotFile,
-                ))?
-            }
+            io::is_file(path).map_err(|e| {
+                ConfigError::Io(ConfigValue::CanvasBackgroundSource, path.to_path_buf(), e)
+            })?;
         }
 
         Ok(())

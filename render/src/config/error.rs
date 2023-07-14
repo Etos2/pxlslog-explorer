@@ -1,7 +1,6 @@
 use std::{fmt::Display, path::PathBuf};
 
 use thiserror::Error;
-use toml::de::Error;
 
 #[derive(Debug)]
 pub enum ConfigValue {
@@ -107,27 +106,20 @@ impl Display for ConfigAlias {
 
 #[derive(Error, Debug)]
 pub enum ConfigError {
+    #[error("io error with {0}: {1} {2}")]
+    Io(ConfigValue, PathBuf, std::io::Error),
     #[error("{0}")]
-    Io(#[from] std::io::Error),
-    #[error("{0}")]
-    Toml(#[from] Error),
+    Toml(#[from] toml::de::Error),
     #[error("required value {} not provided", ConfigValue::stringify_vec(.0))]
     MissingValue(Vec<ConfigValue>),
     #[error("value for \"{0}\" is invalid")]
     InvalidValue(ConfigValue),
-    #[error("the path for \"{1}\" does not exist or is not a file ({0})")]
-    InvalidPath(ConfigValue, PathBuf, InvalidPathKind),
+    // #[error("the path for \"{1}\" does not exist or is not a file ({0})")]
+    // InvalidPath(ConfigValue, PathBuf, InvalidPathKind),
     #[error("\"{0}\" could not be infered with current values")]
     CannotInfer(ConfigValue),
     #[error("alias {0} overrides values that have already been declared {}", ConfigValue::stringify_vec(.1))]
     AliasConflict(ConfigAlias, Vec<ConfigValue>),
-}
-
-#[derive(Debug)]
-pub enum InvalidPathKind {
-    NotFound,
-    NotFile,
-    NotDir,
 }
 
 impl ConfigError {
@@ -137,13 +129,5 @@ impl ConfigError {
 
     pub fn new_infer(value: ConfigValue) -> ConfigError {
         ConfigError::CannotInfer(value)
-    }
-
-    pub fn new_invalid_path(
-        value: ConfigValue,
-        path: PathBuf,
-        kind: InvalidPathKind,
-    ) -> ConfigError {
-        ConfigError::InvalidPath(value, path, kind)
     }
 }

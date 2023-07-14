@@ -385,15 +385,13 @@ impl From<RgbImage> for Yuv420pFrame {
 }
 
 fn get_index(bounds: (u32, u32), x: u32, y: u32) -> usize {
-    assert!(x < bounds.0);
-    assert!(y < bounds.1);
+    assert!(x < bounds.0, "{:?} < {:?}", (x, y), bounds);
+    assert!(y < bounds.1, "{:?} < {:?}", (x, y), bounds);
     (x + y * bounds.0) as usize
 }
 
 fn get_index_checked(bounds: (u32, u32), x: u32, y: u32) -> Option<usize> {
-    assert!(x < bounds.0);
-    assert!(y < bounds.1);
-    if x < bounds.0 && x < bounds.1 {
+    if x < bounds.0 && y < bounds.1 {
         Some((x + y * bounds.0) as usize)
     } else {
         None

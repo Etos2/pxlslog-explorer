@@ -5,3 +5,5 @@
 /templates
 Cargo.lock
 *.sh
+perf*
+flamegraph*

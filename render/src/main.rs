@@ -66,14 +66,17 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .num_threads(config.threads)
         .build_global()?;
 
+    eprintln!("{:?}", config);
+
     let (actions, bounds) = match &config.log_source {
         util::io::Source::Stdin => get_actions(std::io::stdin())?,
         util::io::Source::File(path) => get_actions(File::open(path).map_err(RuntimeError::from)?)?,
     };
 
-    eprintln!("{:?}", config);
+    eprintln!("{:?}", bounds);
 
     for render_config in render_configs {
+        eprintln!("{:?}", render_config);
         let command = RenderCommand::new(render_config, bounds)?;
         command.run(actions.iter())?;
     }
@@ -88,7 +91,7 @@ fn get_actions(reader: impl Read) -> Result<(Vec<Action>, (u32, u32, u32, u32)),
     let mut out = Vec::new();
     let mut prev_time = NaiveDateTime::MIN;
     let mut line = 0;
-    let mut bounds = (u32::MIN, u32::MIN, u32::MAX, u32::MAX);
+    let mut bounds = (u32::MAX, u32::MAX, u32::MIN, u32::MIN);
 
     while reader.read_line(&mut buffer)? != 0 {
         let action = Action::try_from(buffer.trim_end_matches(char::is_whitespace))?;
@@ -114,5 +117,6 @@ fn get_actions(reader: impl Read) -> Result<(Vec<Action>, (u32, u32, u32, u32)),
         buffer.clear();
     }
 
+    bounds = (bounds.0, bounds.1, bounds.2 + 1, bounds.3 + 1);
     Ok((out, bounds))
 }
