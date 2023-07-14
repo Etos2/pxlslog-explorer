@@ -33,6 +33,8 @@ fn main() -> ProgramResult<()> {
     let filters = FilterPredicates::try_from(settings)?;
     let mut lines_read = 0;
     let mut lines_written = 0;
+    let mut lines_removed = 0;
+    let mut lines_errored = 0;
 
     for line in src_handle.lines() {
         let line = line?;
@@ -42,11 +44,14 @@ fn main() -> ProgramResult<()> {
                     let action_str = action.to_string() + "\n";
                     dst_handle.write_all(action_str.as_bytes())?;
                     lines_written += 1;
+                } else {
+                    lines_removed += 1;
                 }
             }
             Err(e) => {
                 warn!("{e} @ line {}", lines_read);
                 warn!("Str: {line:?}");
+                lines_errored += 1;
             }
         }
 
@@ -55,7 +60,8 @@ fn main() -> ProgramResult<()> {
 
     info!("Read:    {lines_read}");
     info!("Wrote:   {lines_written}");
-    info!("Ignored: {}", lines_read - lines_written);
+    info!("Removed: {lines_removed}");
+    info!("Errored: {lines_errored}");
 
     Ok(())
 }
