@@ -1,7 +1,9 @@
+use std::str::FromStr;
+
 use anyhow::Result;
 use chrono::NaiveDateTime;
 use nom::{
-    bytes::complete::take,
+    bytes::complete::{take, take_while1},
     character::complete::{self, multispace1},
     combinator::{map, map_res},
     IResult, Parser,
@@ -9,7 +11,34 @@ use nom::{
 use nom_supreme::{error::ErrorTree, final_parser::Location};
 use nom_supreme::{final_parser::final_parser, ParserExt};
 
-use super::{identifier::Identifier, actionkind::ActionKind, DATE_FMT};
+use super::{actionkind::ActionKind, identifier::Identifier, DATE_FMT};
+
+#[derive(Clone, Debug, PartialEq)]
+pub enum Index {
+    Color(usize),
+    Transparent,
+}
+
+impl FromStr for Index {
+    type Err = <usize as FromStr>::Err;
+
+    fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
+        if s.len() == 2 && s == "-1" {
+            Ok(Index::Transparent)
+        } else {
+            Ok(Index::Color(s.parse()?))
+        }
+    }
+}
+
+impl ToString for Index {
+    fn to_string(&self) -> String {
+        match self {
+            Index::Color(n) => n.to_string(),
+            Index::Transparent => "-1".to_string(),
+        }
+    }
+}
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct Action {
@@ -17,7 +46,7 @@ pub struct Action {
     pub user: Identifier,
     pub x: u32,
     pub y: u32,
-    pub index: usize,
+    pub index: Index,
     pub kind: ActionKind,
 }
 
@@ -36,7 +65,9 @@ impl Action {
         let (input, _) = multispace1(input)?;
         let (input, y) = complete::u32(input)?;
         let (input, _) = multispace1(input)?;
-        let (input, index) = map(complete::u32, |n| n as usize)(input)?;
+        let (input, index) = map_res(take_while1(|c: char| !c.is_whitespace()), Index::from_str)
+            .context("index")
+            .parse(input)?;
         let (input, _) = multispace1(input)?;
         let (input, kind) = ActionKind::parse(input)?;
 

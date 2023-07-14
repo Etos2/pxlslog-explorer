@@ -1,8 +1,10 @@
 use std::path::PathBuf;
 
 use chrono::NaiveDateTime;
+use chrono::format::format;
 use clap::builder::PossibleValue;
 use clap::{Args, Parser, ValueEnum};
+use common::data::action::Index;
 use common::data::actionkind::ActionKind;
 use common::util::region::Region;
 
@@ -43,9 +45,8 @@ pub struct FilterArgs {
     pub before: Option<NaiveDateTime>,
     #[arg(long("color"), value_name("INT"))]
     #[arg(help = "Only include entries with provided colors")]
-    pub colors: Vec<usize>,
+    pub colors: Vec<Index>,
     #[arg(long("region"), value_name("INT"), num_args(4))]
-    #[arg(help = "Region to save")]
     #[arg(value_parser = into_region)]
     #[arg(help = "Only include entries within a region [\"x1 y1 x2 y2\"]")]
     pub regions: Vec<Region<u32>>,

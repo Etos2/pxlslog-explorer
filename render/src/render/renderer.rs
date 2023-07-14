@@ -1,5 +1,6 @@
 use std::num::NonZeroI64;
 
+use common::data::action::Index;
 use rayon::prelude::*;
 
 use super::frame::{DynamicFrame, VideoFrame};
@@ -52,10 +53,17 @@ impl ActionRenderer for RendererNormal {
         P: Pixel,
         V: VideoFrame<Format = P>,
     {
+        // TODO: Investigate -1 color pixels
         for action in actions {
-            let pixel = match self.palette.get(action.index) {
-                Some(color) => *color,
-                None => match self.background.get_pixel_checked(action.x, action.y) {
+            let pixel = match action.index {
+                Index::Color(index) => match self.palette.get(index) {
+                    Some(color) => *color,
+                    None => match self.background.get_pixel_checked(action.x, action.y) {
+                        Some(color) => color,
+                        None => [0, 0, 0, 255].into(),
+                    },
+                },
+                Index::Transparent => match self.background.get_pixel_checked(action.x, action.y) {
                     Some(color) => color,
                     None => [0, 0, 0, 255].into(),
                 },

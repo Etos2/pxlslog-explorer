@@ -44,7 +44,10 @@ fn main() -> ProgramResult<()> {
                     lines_written += 1;
                 }
             }
-            Err(e) => warn!("{e} @ {}", lines_read),
+            Err(e) => {
+                warn!("{e} @ line {}", lines_read);
+                warn!("Str: {line:?}");
+            }
         }
 
         lines_read += 1;
