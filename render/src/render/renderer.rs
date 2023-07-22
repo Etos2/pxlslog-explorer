@@ -174,10 +174,10 @@ impl ActionRenderer for RendererHeat {
     {
         for action in actions {
             let index = action.coord.0 + action.coord.1 * self.width;
-            self.heat_map[index as usize] = action.time.timestamp_millis().try_into().ok();
+            self.heat_map[index as usize] = action.time.try_into().ok();
 
-            if action.time.timestamp_millis() > self.step.get() * self.current_step {
-                self.current_step = action.time.timestamp_millis() / self.step.get() + 1;
+            if action.time > self.step.get() * self.current_step {
+                self.current_step = action.time / self.step.get() + 1;
             }
         }
 
@@ -248,7 +248,7 @@ impl ActionRenderer for RendererPlacement {
         V: VideoFrame<Format = P>,
     {
         for action in actions {
-            let val = ((action.time.timestamp_millis() - 1) % self.step) as f32 / self.step as f32;
+            let val = ((action.time - 1) % self.step) as f32 / self.step as f32;
             let color = color_lerp(self.color, val);
             frame.put_pixel(action.coord.0, action.coord.1, color.into());
         }
@@ -265,10 +265,9 @@ impl ActionRenderer for RendererCombined {
         V: VideoFrame<Format = P>,
     {
         for action in actions {
-            let r = (((action.time.timestamp_millis() - 1) % 1000) as f32 / 1000.0 * 255.0) as u8;
-            let g = (((action.time.timestamp_millis() - 1) % 60000) as f32 / 60000.0 * 255.0) as u8;
-            let b =
-                (((action.time.timestamp_millis() - 1) % 3600000) as f32 / 3600000.0 * 255.0) as u8;
+            let r = (((action.time - 1) % 1000) as f32 / 1000.0 * 255.0) as u8;
+            let g = (((action.time - 1) % 60000) as f32 / 60000.0 * 255.0) as u8;
+            let b = (((action.time - 1) % 3600000) as f32 / 3600000.0 * 255.0) as u8;
 
             frame.put_pixel(action.coord.0, action.coord.1, [r, g, b, 255].into());
         }
@@ -301,13 +300,13 @@ impl ActionRenderer for RendererAge {
         V: VideoFrame<Format = P>,
     {
         for action in actions {
-            self.max = action.time.timestamp_millis();
+            self.max = action.time;
             if self.min.is_none() {
-                self.min = Some(action.time.timestamp_millis());
+                self.min = Some(action.time);
             }
 
             let index = action.coord.0 + action.coord.1 * self.width;
-            self.age_map[index as usize] = action.time.timestamp_millis();
+            self.age_map[index as usize] = action.time;
         }
 
         frame.put_from_par_iter(self.age_map.par_iter().map(|age| {

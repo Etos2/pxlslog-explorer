@@ -42,7 +42,7 @@ impl ToString for Index {
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct Action {
-    pub time: NaiveDateTime,
+    pub time: i64,
     pub user: Identifier,
     pub x: u32,
     pub y: u32,
@@ -53,7 +53,7 @@ pub struct Action {
 impl Action {
     fn parse(input: &str) -> IResult<&str, Self, ErrorTree<&str>> {
         let (input, time) = map_res(take(23usize), |t| {
-            NaiveDateTime::parse_from_str(t, DATE_FMT)
+            NaiveDateTime::parse_from_str(t, DATE_FMT).map(|t| t.timestamp_millis())
         })
         .context("date")
         .parse(input)?;
@@ -95,7 +95,10 @@ impl TryFrom<&str> for Action {
 
 impl ToString for Action {
     fn to_string(&self) -> String {
-        let mut out = self.time.format(DATE_FMT).to_string();
+        let mut out = NaiveDateTime::from_timestamp_millis(self.time)
+            .unwrap() // Safety: Fails in the year 262000, not my problem
+            .format(DATE_FMT)
+            .to_string();
         out += "\t";
         out += self.user.get();
         out += "\t";

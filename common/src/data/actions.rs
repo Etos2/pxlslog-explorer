@@ -46,7 +46,7 @@ impl<'a> Iterator for ActionsIterator<'a> {
 }
 
 pub struct ActionsView<'a> {
-    pub time: &'a NaiveDateTime,
+    pub time: i64,
     pub user: Option<&'a Identifier>,
     pub coord: (u32, u32),
     pub index: Option<Index>,
@@ -56,7 +56,7 @@ pub struct ActionsView<'a> {
 // todo: Change to i64 rather than NaiveDateTime?
 #[derive(Clone, Debug)]
 pub struct Actions {
-    pub time: Vec<NaiveDateTime>,
+    pub time: Vec<i64>,
     pub user: Option<Vec<Identifier>>,
     pub coord: Vec<(u32, u32)>,
     pub index: Option<Vec<Index>>,
@@ -66,7 +66,7 @@ pub struct Actions {
 
 #[derive(Clone, Debug)]
 pub struct ActionsParser {
-    time: Vec<NaiveDateTime>,
+    time: Vec<i64>,
     user: Vec<Identifier>,
     coord: Vec<(u32, u32)>,
     index: Vec<Index>,
@@ -78,7 +78,7 @@ pub struct ActionsParser {
 impl Actions {
     pub fn get_view(&self, i: usize) -> Option<ActionsView<'_>> {
         Some(ActionsView {
-            time: self.time.get(i)?,
+            time: *self.time.get(i)?,
             user: self.user.as_ref().map(|v| v.get(i)).unwrap_or_default(),
             coord: self.coord.get(i).cloned()?,
             index: self.index.as_ref().map(|v| v.get(i)).unwrap_or_default().cloned(),
@@ -140,7 +140,7 @@ impl ActionsParser {
 
     fn parse_line<'a>(&mut self, input: &'a str, flag: ActionsParseFlags) -> IResult<&'a str, ()> {
         let (input, time) = map_res(take(23usize), |t| {
-            NaiveDateTime::parse_from_str(t, DATE_FMT)
+            NaiveDateTime::parse_from_str(t, DATE_FMT).map(|t| t.timestamp_millis())
         })(input)?;
         let (input, _) = multispace1(input)?;
         let (input, user) = Self::conditional_parse(input, Identifier::parse, || {

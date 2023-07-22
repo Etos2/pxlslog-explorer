@@ -201,7 +201,7 @@ impl RenderCommand {
 
         match step {
             Step::Time(millis_per_frame) => actions
-                .group_by(|a| a.time.timestamp_millis() / millis_per_frame.get())
+                .group_by(|a| a.time / millis_per_frame.get())
                 .into_iter()
                 .try_for_each(|(_, action_group)| -> anyhow::Result<()> {
                     renderer.update(action_group, frame);
@@ -236,7 +236,7 @@ impl RenderCommand {
         match step {
             Step::Time(millis_per_frame) => {
                 for (_, action_group) in
-                    &actions.group_by(|a| a.time.timestamp_millis() / millis_per_frame.get())
+                    &actions.group_by(|a| a.time / millis_per_frame.get())
                 {
                     renderer.update(action_group, frame);
                     image::save_buffer(

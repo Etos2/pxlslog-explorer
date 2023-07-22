@@ -1,3 +1,4 @@
+use chrono::NaiveDateTime;
 use common::data::{action::Action, identifier::Identifier};
 use predicates::{prelude::*, BoxPredicate};
 use sha2::{Digest, Sha256};
@@ -24,9 +25,11 @@ impl TryFrom<FilterArgs> for FilterPredicates {
 
     fn try_from(value: FilterArgs) -> Result<Self, Self::Error> {
         let mut predicates = Vec::new();
+        let after = value.after.map(|t| t.timestamp_millis());
+        let before = value.after.map(|t| t.timestamp_millis());
 
-        add_filter(&mut predicates, value.after, |a, time| a.time > time);
-        add_filter(&mut predicates, value.before, |a, time| a.time < time);
+        add_filter(&mut predicates, after, |a, time| a.time > time);
+        add_filter(&mut predicates, before, |a, time| a.time < time);
         add_filter(&mut predicates, value.colors, |a, index| index == a.index);
         add_filter(&mut predicates, value.regions, |a, region| {
             region.contains(a.x, a.y)
@@ -59,7 +62,10 @@ where
 }
 
 fn compare_action_to_key(key: &str, action: &Action) -> bool {
-    let time = action.time.format("%Y-%m-%d %H:%M:%S,%3f").to_string();
+    let time = NaiveDateTime::from_timestamp_millis(action.time)
+        .unwrap() // Safety: Fails in the year 262000, not my problem
+        .format("%Y-%m-%d %H:%M:%S,%3f")
+        .to_string();
     if let Identifier::Hash(hash) = &action.user {
         let mut hasher = Sha256::new();
         hasher.update(time.as_bytes());

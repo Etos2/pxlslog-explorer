@@ -27,8 +27,8 @@ pub struct ActionError {
 #[derive(Debug)]
 pub enum ActionErrorKind {
     OutOfOrder {
-        time: NaiveDateTime,
-        prev_time: NaiveDateTime,
+        time: i64,
+        prev_time: i64,
     },
     InvalidIndex {
         index: usize,
@@ -50,12 +50,15 @@ impl Display for ActionErrorKind {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             ActionErrorKind::OutOfOrder { time, prev_time } => {
-                let time_str = time.format(DATE_FMT).to_string();
-                let prev_time_str = prev_time.format(DATE_FMT).to_string();
-                write!(
-                    f,
-                    "out of order (expected {time_str} < {prev_time_str})"
-                )
+                let time_str = NaiveDateTime::from_timestamp_millis(*time)
+                    .unwrap() // Safety: Fails in the year 262000, not my problem
+                    .format(DATE_FMT)
+                    .to_string();
+                let prev_time_str = NaiveDateTime::from_timestamp_millis(*prev_time)
+                    .unwrap() // Safety: Fails in the year 262000, not my problem
+                    .format(DATE_FMT)
+                    .to_string();
+                write!(f, "out of order (expected {time_str} < {prev_time_str})")
             }
             ActionErrorKind::InvalidIndex { index, max_index } => write!(
                 f,

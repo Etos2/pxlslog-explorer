@@ -11,7 +11,10 @@ use std::{
 
 use chrono::NaiveDateTime;
 use clap::Parser;
-use common::data::{action::Action, actions::{Actions, ActionsParser, ActionsParseFlags}};
+use common::data::{
+    action::Action,
+    actions::{ActionsParseFlags, ActionsParser},
+};
 use config::{
     builder::BuilderOverride, source::cli::CliData, source::toml::read_toml, source::ConfigSource,
 };
@@ -36,24 +39,31 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .num_threads(config.threads)
         .build_global()?;
 
+    eprintln!("Parsing actions...");
+
     // TODO: Get flags from render styles
-    let mut parser = ActionsParser::new(ActionsParseFlags::INDEX);    
+    let mut parser = ActionsParser::new(ActionsParseFlags::INDEX);
     match &config.log_source {
         util::io::Source::Stdin => parser.read(std::io::stdin())?,
-        util::io::Source::File(path) => parser.read(File::open(path).map_err(RuntimeError::from)?)?,
+        util::io::Source::File(path) => {
+            parser.read(File::open(path).map_err(RuntimeError::from)?)?
+        }
     }
     let actions = parser.build();
-    
+
+    eprintln!("Parsed actions");
 
     // let (actions, bounds) = match &config.log_source {
     //     util::io::Source::Stdin => get_actions(std::io::stdin())?,
     //     util::io::Source::File(path) => get_actions(File::open(path).map_err(RuntimeError::from)?)?,
     // };
 
+    eprintln!("Rendering actions...");
     for render_config in render_configs {
         let command = RenderCommand::new(render_config, actions.bounds)?;
         command.run(actions.iter())?;
     }
+    eprintln!("Rendered action");
 
     Ok(())
 }
@@ -63,7 +73,7 @@ fn get_actions(reader: impl Read) -> Result<(Vec<Action>, (u32, u32, u32, u32)),
     let mut reader = BufReader::with_capacity(64000000, reader);
     let mut buffer = String::new();
     let mut out = Vec::new();
-    let mut prev_time = NaiveDateTime::MIN;
+    let mut prev_time = NaiveDateTime::MIN.timestamp_millis();
     let mut line = 0;
     let mut bounds = (u32::MAX, u32::MAX, u32::MIN, u32::MIN);
 
