@@ -106,7 +106,7 @@ impl Display for ConfigAlias {
 
 #[derive(Error, Debug)]
 pub enum ConfigError {
-    #[error("io error with {0}: {1} {2}")]
+    #[error("io error with {0}: {2} @ {1}")]
     Io(ConfigValue, PathBuf, std::io::Error),
     #[error("{0}")]
     Toml(#[from] toml::de::Error),

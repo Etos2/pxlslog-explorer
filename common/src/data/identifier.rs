@@ -1,35 +1,20 @@
-use std::fmt::Display;
-
 use nom::{
     branch::alt,
     bytes::complete::{take, take_while1},
-    combinator::{map, verify},
-    IResult,
+    combinator::{map, verify, all_consuming},
+    Finish, IResult,
 };
 
-use nom_supreme::{
-    error::ErrorTree,
-    final_parser::{final_parser, Location},
-};
+use nom_locate::LocatedSpan;
+use thiserror::Error;
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Error, Debug, Clone)]
 pub enum ParseIdentifierError {
+    #[error("unexpected end of string")]
     Empty,
+    #[error("invalid length for identifier: ({0})")]
     InvalidLength(usize),
 }
-
-impl Display for ParseIdentifierError {
-    fn fmt(&self, fmt: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            ParseIdentifierError::Empty => write!(fmt, "unexpected end of string"),
-            ParseIdentifierError::InvalidLength(n) => {
-                write!(fmt, "invalid length for identifier: ({})", n)
-            }
-        }
-    }
-}
-
-impl std::error::Error for ParseIdentifierError {}
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Identifier {
@@ -59,7 +44,7 @@ impl Identifier {
         }
     }
 
-    pub fn parse(input: &str) -> IResult<&str, Identifier, ErrorTree<&str>> {
+    pub fn parse(input: &str) -> IResult<&str, Identifier> {
         alt((
             map(
                 verify(take_while1(|c: char| !c.is_whitespace()), |s: &str| {
@@ -72,17 +57,25 @@ impl Identifier {
     }
 }
 
-impl<T> PartialEq<T> for Identifier where T: AsRef<str>  {
+impl<T> PartialEq<T> for Identifier
+where
+    T: AsRef<str>,
+{
     fn eq(&self, other: &T) -> bool {
         self.get() == other.as_ref()
     }
 }
 
-impl TryFrom<&str> for Identifier {
-    type Error = ErrorTree<Location>;
+impl<'a> TryFrom<&'a str> for Identifier {
+    type Error = nom::error::Error<&'a str>;
 
-    fn try_from(input: &str) -> Result<Self, Self::Error> {
-        final_parser(Self::parse)(input)
+    fn try_from(input: &'a str) -> Result<Self, Self::Error> {
+        let span = LocatedSpan::new(input);
+        let result = all_consuming(Self::parse)(&span).finish();
+        match result {
+            Ok((_, id)) => Ok(id),
+            Err(e) => Err(e),
+        }
     }
 }
 

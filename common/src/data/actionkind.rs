@@ -1,10 +1,4 @@
-use anyhow::{Error, Context};
-use nom::{branch::alt, bytes::complete::tag, IResult};
-use nom_supreme::{
-    error::ErrorTree,
-    final_parser::{Location, final_parser},
-    ParserExt,
-};
+use nom::{branch::alt, bytes::complete::tag, Finish, IResult, combinator::{all_consuming, value}};
 
 #[derive(Debug, PartialEq, Copy, Clone)]
 pub enum ActionKind {
@@ -17,26 +11,27 @@ pub enum ActionKind {
 }
 
 impl ActionKind {
-    pub(crate) fn parse(input: &str) -> IResult<&str, ActionKind, ErrorTree<&str>> {
+    pub(crate) fn parse(input: &str) -> IResult<&str, ActionKind> {
         alt((
-            tag("user place").value(ActionKind::Place),
-            tag("user undo").value(ActionKind::Undo),
-            tag("mod overwrite").value(ActionKind::Overwrite),
-            tag("rollback undo").value(ActionKind::RollbackUndo),
-            tag("rollback").value(ActionKind::Rollback),
-            tag("console nuke").value(ActionKind::Nuke),
+            value(ActionKind::Place, tag("user place")),
+            value(ActionKind::Undo, tag("user undo")),
+            value(ActionKind::Overwrite, tag("mod overwrite")),
+            value(ActionKind::RollbackUndo, tag("rollback undo")),
+            value(ActionKind::Rollback, tag("rollback")),
+            value(ActionKind::Nuke, tag("console nuke")),
         ))(input)
     }
 }
 
-impl TryFrom<&str> for ActionKind {
-    type Error = Error;
+impl<'a> TryFrom<&'a str> for ActionKind {
+    type Error = nom::error::Error<&'a str>;
 
-    fn try_from(input: &str) -> Result<Self, Self::Error> {
-        let result: Result<_, ErrorTree<Location>> = final_parser(Self::parse)(input);
-        result
-            .map_err(anyhow::Error::from)
-            .context("Failed to parse action kind")
+    fn try_from(input: &'a str) -> Result<Self, Self::Error> {
+        let result = all_consuming(Self::parse)(input).finish();
+        match result {
+            Ok((_, kind)) => Ok(kind),
+            Err(e) => Err(e),
+        }
     }
 }
 

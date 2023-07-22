@@ -13,7 +13,7 @@ use crate::error::RuntimeError;
 use crate::palette::{Palette, PaletteParser, DEFAULT_PALETTE};
 use crate::render::pixel::Pixel;
 
-use common::data::action::Action;
+use common::data::actions::ActionsView;
 use image::io::Reader as ImageReader;
 use image::{imageops, ImageBuffer};
 use itertools::Itertools;
@@ -84,9 +84,6 @@ impl RenderCommand {
             DEFAULT_PALETTE.to_vec()
         };
 
-        eprintln!("{:?}", background.dimensions());
-        eprintln!("{:?}", offset);
-
         Ok(Self {
             destination: config.destination.kind,
             step: config.step,
@@ -98,15 +95,12 @@ impl RenderCommand {
         })
     }
 
-    // TODO (Etos2): Consider data oriented design
-    // TODO (Etos2): Optional parsing (ignore unneeded/ expensive data)
     // TODO (Etos2): Dumber parsing (use strict mode for "smarter" parser?)
-    // TODO (Etos2): Replace reader with smarter type (IntoActionBatch?)
     // TODO (Etos2): Replace format with appriorate enum
-    pub fn run<'a>(&self, actions: impl Iterator<Item = &'a Action>) -> anyhow::Result<()> {
-        let actions_iter = actions.cloned().map(|mut a| {
-            a.x -= self.offset.0;
-            a.y -= self.offset.1;
+    pub fn run<'a>(&self, actions: impl Iterator<Item = ActionsView<'a>>) -> anyhow::Result<()> {
+        let actions_iter = actions.map(|mut a| {
+            a.coord.0 -= self.offset.0;
+            a.coord.1 -= self.offset.1;
             a
         });
 
@@ -161,10 +155,10 @@ impl RenderCommand {
         Ok(())
     }
 
-    fn render(
+    fn render<'a>(
         &self,
         renderer: impl ActionRenderer,
-        actions: impl Iterator<Item = Action>,
+        actions: impl Iterator<Item = ActionsView<'a>>,
     ) -> anyhow::Result<()> {
         let mut background = self.background.clone();
         // TODO: implement some form of Into<> for DestinationKind for output to avoid match
@@ -193,9 +187,9 @@ impl RenderCommand {
     }
 
     // TODO (Etos2): Generic writing of pixels to frame (YUV420p, RGBA, RGB, etc)
-    fn render_to_raw<V: VideoFrame>(
+    fn render_to_raw<'a, V: VideoFrame>(
         mut renderer: impl ActionRenderer,
-        actions: impl Iterator<Item = Action>,
+        actions: impl Iterator<Item = ActionsView<'a>>,
         frame: &mut V,
         step: Step,
     ) -> anyhow::Result<()> {
@@ -203,7 +197,7 @@ impl RenderCommand {
         let handle = stdout.lock();
         // TODO (Etos2): Frame.write_size()
         // TODO (Etos2): Use iter to control if background is drawn first (--skip)
-        let mut handle = BufWriter::with_capacity(1024, handle);
+        let mut handle = BufWriter::new(handle);
 
         match step {
             Step::Time(millis_per_frame) => actions
@@ -230,16 +224,14 @@ impl RenderCommand {
     }
 
     // TODO (Etos2): Handle file IO manually to avoid overwriting files
-    fn render_to_file<V: VideoFrame>(
+    fn render_to_file<'a, V: VideoFrame>(
         mut renderer: impl ActionRenderer,
-        actions: impl Iterator<Item = Action>,
+        actions: impl Iterator<Item = ActionsView<'a>>,
         path: impl AsRef<Path>,
         frame: &mut V,
         step: Step,
     ) -> anyhow::Result<()> {
         let (width, height) = frame.dimensions();
-
-        eprintln!("Rendering");
 
         match step {
             Step::Time(millis_per_frame) => {

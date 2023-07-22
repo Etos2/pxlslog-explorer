@@ -200,13 +200,17 @@ impl From<ProgramSettings> for ProgramConfigBuilder {
 }
 
 impl From<RenderSettings> for RenderConfigBuilder {
-    fn from(value: RenderSettings) -> Self {
+    fn from(mut value: RenderSettings) -> Self {
+        if value.screenshot {
+            value.step = Some(NonZeroI64::MAX);
+        }
+
         RenderConfigBuilder {
             method_palette_source: value.palette.map(PaletteSource::File),
             method_kind: value.style.map(|arg| arg.into()),
             canvas_source: value.bg,
             canvas_size: value.region.map(|r| (r[0], r[1], r[2], r[3])),
-            canvas_background: value.color.map(|v| *Rgba::from_slice(&v[0..=4])),
+            canvas_background: value.color.map(|v| *Rgba::from_slice(&v[0..4])),
             canvas_transparency: None,
             destination_format: value.output_format,
             destination_kind: value.output.map(|dst| match dst {

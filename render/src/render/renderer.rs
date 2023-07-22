@@ -1,13 +1,14 @@
 use std::num::NonZeroI64;
 
 use common::data::action::Index;
+use common::data::actions::ActionsView;
 use rayon::prelude::*;
 
 use super::frame::{DynamicFrame, VideoFrame};
 use super::gradient::Gradient;
 use super::pixel::{Pixel, Rgba};
 use crate::palette::Palette;
-use common::data::{action::Action, actionkind::ActionKind};
+use common::data::actionkind::ActionKind;
 
 const ACTIVITY_GRADIENT: [Rgba; 9] = [
     Rgba([11, 21, 97, 255]),
@@ -26,7 +27,7 @@ const ACTIVITY_WEIGHTS: [f32; 9] = [
 ];
 
 pub trait ActionRenderer {
-    fn update<'a, P, V>(&mut self, actions: impl Iterator<Item = Action>, frame: &mut V)
+    fn update<'a, P, V>(&mut self, actions: impl Iterator<Item = ActionsView<'a>>, frame: &mut V)
     where
         P: Pixel + Send,
         V: VideoFrame<Format = P>;
@@ -48,28 +49,36 @@ impl RendererNormal {
 }
 
 impl ActionRenderer for RendererNormal {
-    fn update<'a, P, V>(&mut self, actions: impl Iterator<Item = Action>, frame: &mut V)
+    fn update<'a, P, V>(&mut self, actions: impl Iterator<Item = ActionsView<'a>>, frame: &mut V)
     where
         P: Pixel,
         V: VideoFrame<Format = P>,
     {
-        // TODO: Investigate -1 color pixels
         for action in actions {
             let pixel = match action.index {
-                Index::Color(index) => match self.palette.get(index) {
-                    Some(color) => *color,
-                    None => match self.background.get_pixel_checked(action.x, action.y) {
+                Some(index) => match index {
+                    Index::Color(index) => match self.palette.get(index) {
+                        Some(color) => *color,
+                        None => match self
+                            .background
+                            .get_pixel_checked(action.coord.0, action.coord.1)
+                        {
+                            Some(color) => color,
+                            None => [0, 0, 0, 255].into(),
+                        },
+                    },
+                    Index::Transparent => match self
+                        .background
+                        .get_pixel_checked(action.coord.0, action.coord.1)
+                    {
                         Some(color) => color,
                         None => [0, 0, 0, 255].into(),
                     },
                 },
-                Index::Transparent => match self.background.get_pixel_checked(action.x, action.y) {
-                    Some(color) => color,
-                    None => [0, 0, 0, 255].into(),
-                },
+                None => unreachable!(),
             };
 
-            frame.put_pixel(action.x, action.y, pixel.into());
+            frame.put_pixel(action.coord.0, action.coord.1, pixel.into());
         }
     }
 }
@@ -100,13 +109,13 @@ impl RendererActivity {
 }
 
 impl ActionRenderer for RendererActivity {
-    fn update<'a, P, V>(&mut self, actions: impl Iterator<Item = Action>, frame: &mut V)
+    fn update<'a, P, V>(&mut self, actions: impl Iterator<Item = ActionsView<'a>>, frame: &mut V)
     where
         P: Pixel,
         V: VideoFrame<Format = P>,
     {
         for action in actions {
-            let index = (action.x + action.y * self.width) as usize;
+            let index = (action.coord.0 + action.coord.1 * self.width) as usize;
             self.totals_map[index] += 1;
         }
 
@@ -125,13 +134,13 @@ impl ActionRenderer for RendererActivity {
 pub struct RendererVirgin;
 
 impl ActionRenderer for RendererVirgin {
-    fn update<'a, P, V>(&mut self, actions: impl Iterator<Item = Action>, frame: &mut V)
+    fn update<'a, P, V>(&mut self, actions: impl Iterator<Item = ActionsView<'a>>, frame: &mut V)
     where
         P: Pixel,
         V: VideoFrame<Format = P>,
     {
         for action in actions {
-            frame.put_pixel(action.x, action.y, [0, 0, 0, 255].into());
+            frame.put_pixel(action.coord.0, action.coord.1, [0, 0, 0, 255].into());
         }
     }
 }
@@ -158,13 +167,13 @@ impl RendererHeat {
 }
 
 impl ActionRenderer for RendererHeat {
-    fn update<'a, P, V>(&mut self, actions: impl Iterator<Item = Action>, frame: &mut V)
+    fn update<'a, P, V>(&mut self, actions: impl Iterator<Item = ActionsView<'a>>, frame: &mut V)
     where
         P: Pixel + Send,
         V: VideoFrame<Format = P>,
     {
         for action in actions {
-            let index = action.x + action.y * self.width;
+            let index = action.coord.0 + action.coord.1 * self.width;
             self.heat_map[index as usize] = action.time.timestamp_millis().try_into().ok();
 
             if action.time.timestamp_millis() > self.step.get() * self.current_step {
@@ -195,22 +204,25 @@ impl ActionRenderer for RendererHeat {
 pub struct RendererAction;
 
 impl ActionRenderer for RendererAction {
-    fn update<'a, P, V>(&mut self, actions: impl Iterator<Item = Action>, frame: &mut V)
+    fn update<'a, P, V>(&mut self, actions: impl Iterator<Item = ActionsView<'a>>, frame: &mut V)
     where
         P: Pixel,
         V: VideoFrame<Format = P>,
     {
         for action in actions {
             frame.put_pixel(
-                action.x,
-                action.y,
+                action.coord.0,
+                action.coord.1,
                 match action.kind {
-                    ActionKind::Undo => [255, 0, 255, 255].into(),
-                    ActionKind::Place => [0, 0, 255, 255].into(),
-                    ActionKind::Overwrite => [0, 255, 255, 255].into(),
-                    ActionKind::Rollback => [0, 255, 0, 255].into(),
-                    ActionKind::RollbackUndo => [255, 255, 0, 255].into(),
-                    ActionKind::Nuke => [255, 0, 0, 255].into(),
+                    Some(kind) => match kind {
+                        ActionKind::Undo => [255, 0, 255, 255].into(),
+                        ActionKind::Place => [0, 0, 255, 255].into(),
+                        ActionKind::Overwrite => [0, 255, 255, 255].into(),
+                        ActionKind::Rollback => [0, 255, 0, 255].into(),
+                        ActionKind::RollbackUndo => [255, 255, 0, 255].into(),
+                        ActionKind::Nuke => [255, 0, 0, 255].into(),
+                    },
+                    None => unreachable!(),
                 },
             );
         }
@@ -230,7 +242,7 @@ impl RendererPlacement {
 }
 
 impl ActionRenderer for RendererPlacement {
-    fn update<'a, P, V>(&mut self, actions: impl Iterator<Item = Action>, frame: &mut V)
+    fn update<'a, P, V>(&mut self, actions: impl Iterator<Item = ActionsView<'a>>, frame: &mut V)
     where
         P: Pixel,
         V: VideoFrame<Format = P>,
@@ -238,7 +250,7 @@ impl ActionRenderer for RendererPlacement {
         for action in actions {
             let val = ((action.time.timestamp_millis() - 1) % self.step) as f32 / self.step as f32;
             let color = color_lerp(self.color, val);
-            frame.put_pixel(action.x, action.y, color.into());
+            frame.put_pixel(action.coord.0, action.coord.1, color.into());
         }
     }
 }
@@ -247,7 +259,7 @@ impl ActionRenderer for RendererPlacement {
 pub struct RendererCombined;
 
 impl ActionRenderer for RendererCombined {
-    fn update<'a, P, V>(&mut self, actions: impl Iterator<Item = Action>, frame: &mut V)
+    fn update<'a, P, V>(&mut self, actions: impl Iterator<Item = ActionsView<'a>>, frame: &mut V)
     where
         P: Pixel,
         V: VideoFrame<Format = P>,
@@ -258,7 +270,7 @@ impl ActionRenderer for RendererCombined {
             let b =
                 (((action.time.timestamp_millis() - 1) % 3600000) as f32 / 3600000.0 * 255.0) as u8;
 
-            frame.put_pixel(action.x, action.y, [r, g, b, 255].into());
+            frame.put_pixel(action.coord.0, action.coord.1, [r, g, b, 255].into());
         }
     }
 }
@@ -283,7 +295,7 @@ impl RendererAge {
 }
 
 impl ActionRenderer for RendererAge {
-    fn update<'a, P, V>(&mut self, actions: impl Iterator<Item = Action>, frame: &mut V)
+    fn update<'a, P, V>(&mut self, actions: impl Iterator<Item = ActionsView<'a>>, frame: &mut V)
     where
         P: Pixel + Send,
         V: VideoFrame<Format = P>,
@@ -294,7 +306,7 @@ impl ActionRenderer for RendererAge {
                 self.min = Some(action.time.timestamp_millis());
             }
 
-            let index = action.x + action.y * self.width;
+            let index = action.coord.0 + action.coord.1 * self.width;
             self.age_map[index as usize] = action.time.timestamp_millis();
         }
 

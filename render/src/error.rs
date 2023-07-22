@@ -54,7 +54,7 @@ impl Display for ActionErrorKind {
                 let prev_time_str = prev_time.format(DATE_FMT).to_string();
                 write!(
                     f,
-                    "action is out of order (expected {time_str} < {prev_time_str})"
+                    "out of order (expected {time_str} < {prev_time_str})"
                 )
             }
             ActionErrorKind::InvalidIndex { index, max_index } => write!(

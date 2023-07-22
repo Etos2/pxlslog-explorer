@@ -5,7 +5,7 @@ use chrono::NaiveDateTime;
 use nom::{
     bytes::complete::{take, take_while1},
     character::complete::{self, multispace1},
-    combinator::{map, map_res},
+    combinator::map_res,
     IResult, Parser,
 };
 use nom_supreme::{error::ErrorTree, final_parser::Location};
@@ -59,7 +59,7 @@ impl Action {
         .parse(input)?;
 
         let (input, _) = multispace1(input)?;
-        let (input, user) = Identifier::parse(input)?;
+        let (input, user) = Identifier::parse(input).unwrap();
         let (input, _) = multispace1(input)?;
         let (input, x) = complete::u32(input)?;
         let (input, _) = multispace1(input)?;
@@ -69,7 +69,7 @@ impl Action {
             .context("index")
             .parse(input)?;
         let (input, _) = multispace1(input)?;
-        let (input, kind) = ActionKind::parse(input)?;
+        let (input, kind) = ActionKind::parse(input).unwrap();
 
         Ok((
             input,

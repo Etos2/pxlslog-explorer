@@ -11,7 +11,7 @@ use std::{
 
 use chrono::NaiveDateTime;
 use clap::Parser;
-use common::data::action::Action;
+use common::data::{action::Action, actions::{Actions, ActionsParser, ActionsParseFlags}};
 use config::{
     builder::BuilderOverride, source::cli::CliData, source::toml::read_toml, source::ConfigSource,
 };
@@ -36,18 +36,22 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .num_threads(config.threads)
         .build_global()?;
 
-    eprintln!("{:?}", config);
+    // TODO: Get flags from render styles
+    let mut parser = ActionsParser::new(ActionsParseFlags::INDEX);    
+    match &config.log_source {
+        util::io::Source::Stdin => parser.read(std::io::stdin())?,
+        util::io::Source::File(path) => parser.read(File::open(path).map_err(RuntimeError::from)?)?,
+    }
+    let actions = parser.build();
+    
 
-    let (actions, bounds) = match &config.log_source {
-        util::io::Source::Stdin => get_actions(std::io::stdin())?,
-        util::io::Source::File(path) => get_actions(File::open(path).map_err(RuntimeError::from)?)?,
-    };
-
-    eprintln!("{:?}", bounds);
+    // let (actions, bounds) = match &config.log_source {
+    //     util::io::Source::Stdin => get_actions(std::io::stdin())?,
+    //     util::io::Source::File(path) => get_actions(File::open(path).map_err(RuntimeError::from)?)?,
+    // };
 
     for render_config in render_configs {
-        eprintln!("{:?}", render_config);
-        let command = RenderCommand::new(render_config, bounds)?;
+        let command = RenderCommand::new(render_config, actions.bounds)?;
         command.run(actions.iter())?;
     }
 
@@ -64,27 +68,31 @@ fn get_actions(reader: impl Read) -> Result<(Vec<Action>, (u32, u32, u32, u32)),
     let mut bounds = (u32::MAX, u32::MAX, u32::MIN, u32::MIN);
 
     while reader.read_line(&mut buffer)? != 0 {
-        let action = Action::try_from(buffer.trim_end_matches(char::is_whitespace))?;
+        match Action::try_from(buffer.trim_end_matches(char::is_whitespace)) {
+            Ok(action) => {
+                if action.time < prev_time {
+                    let err = RuntimeError::InvalidAction(ActionError {
+                        line,
+                        kind: ActionErrorKind::OutOfOrder {
+                            time: action.time,
+                            prev_time,
+                        },
+                    });
+                    eprintln!("ignored {err}");
+                }
 
-        if action.time < prev_time {
-            Err(RuntimeError::InvalidAction(ActionError {
-                line,
-                kind: ActionErrorKind::OutOfOrder {
-                    time: action.time,
-                    prev_time,
-                },
-            }))?;
+                bounds.0 = bounds.0.min(action.x);
+                bounds.1 = bounds.1.min(action.y);
+                bounds.2 = bounds.2.max(action.x);
+                bounds.3 = bounds.3.max(action.y);
+                prev_time = action.time;
+                out.push(action);
+                buffer.clear();
+            }
+            Err(err) => eprintln!("{err}"),
         }
 
-        bounds.0 = bounds.0.min(action.x);
-        bounds.1 = bounds.1.min(action.y);
-        bounds.2 = bounds.2.max(action.x);
-        bounds.3 = bounds.3.max(action.y);
-
         line += 1;
-        prev_time = action.time;
-        out.push(action);
-        buffer.clear();
     }
 
     bounds = (bounds.0, bounds.1, bounds.2 + 1, bounds.3 + 1);
