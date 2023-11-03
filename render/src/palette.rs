@@ -9,6 +9,8 @@ use serde_json::Value;
 
 use crate::render::pixel::Rgba;
 
+// TODO: Update to most recent palette
+// TODO: Add more palettes
 pub const DEFAULT_PALETTE: [Rgba; 32] = [
     Rgba([0, 0, 0, 255]),       // Black
     Rgba([34, 34, 34, 255]),    // Dark Grey
@@ -65,7 +67,7 @@ impl PaletteParser {
         }
     }
 
-    // TODO: Improve (?)
+    // TODO: Support both json formats
     pub fn parse_json<R>(input: &mut R) -> Result<Palette>
     where
         R: Read,

@@ -11,23 +11,23 @@ use crate::{
     util::io::{Destination, Source},
 };
 
-use self::{builder::ConfigBuilder, error::ConfigError};
+use self::builder::ConfigBuilder;
 
 #[derive(Debug, Clone)]
 pub enum DestinationCommand {
-    Ffmpeg,
+    _Ffmpeg,
     // Gstream,
     // Gmagic,
-    Other(String, Option<Vec<String>>),
+    _Other(String, Option<Vec<String>>),
 }
 
 #[derive(Debug, Clone)]
 pub enum DestinationKind {
     File(PathBuf),
-    Dir(PathBuf),
+    _Dir(PathBuf),
     // NamedPipe(),
     Stdout,
-    Process(Destination, DestinationCommand),
+    _Process(Destination, DestinationCommand),
 }
 
 #[derive(Debug, Clone, Copy, ValueEnum)]
@@ -40,7 +40,7 @@ pub enum PixelFormat {
 #[derive(Debug, Clone)]
 pub enum PaletteSource {
     File(PathBuf),
-    Array(Vec<Rgba>),
+    _Array(Vec<Rgba>),
 }
 
 #[derive(Default, Debug, Clone, Copy)]

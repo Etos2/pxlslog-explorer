@@ -1,4 +1,5 @@
 use nom::{branch::alt, bytes::complete::tag, Finish, IResult, combinator::{all_consuming, value}};
+use nom_supreme::error::ErrorTree;
 
 #[derive(Debug, PartialEq, Copy, Clone)]
 pub enum ActionKind {
@@ -11,7 +12,7 @@ pub enum ActionKind {
 }
 
 impl ActionKind {
-    pub(crate) fn parse(input: &str) -> IResult<&str, ActionKind> {
+    pub(crate) fn parse(input: &str) -> IResult<&str, ActionKind, ErrorTree<&str>> {
         alt((
             value(ActionKind::Place, tag("user place")),
             value(ActionKind::Undo, tag("user undo")),
@@ -24,7 +25,7 @@ impl ActionKind {
 }
 
 impl<'a> TryFrom<&'a str> for ActionKind {
-    type Error = nom::error::Error<&'a str>;
+    type Error = ErrorTree<&'a str>;
 
     fn try_from(input: &'a str) -> Result<Self, Self::Error> {
         let result = all_consuming(Self::parse)(input).finish();

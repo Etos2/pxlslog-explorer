@@ -1,11 +1,13 @@
 use nom::{
     branch::alt,
     bytes::complete::{take, take_while1},
-    combinator::{map, verify, all_consuming},
-    Finish, IResult,
+    combinator::all_consuming,
+    Finish, IResult, Parser,
 };
 
 use nom_locate::LocatedSpan;
+use nom_supreme::error::ErrorTree;
+use nom_supreme::parser_ext::ParserExt;
 use thiserror::Error;
 
 #[derive(Error, Debug, Clone)]
@@ -44,15 +46,12 @@ impl Identifier {
         }
     }
 
-    pub fn parse(input: &str) -> IResult<&str, Identifier> {
+    pub(crate) fn parse(input: &str) -> IResult<&str, Identifier, ErrorTree<&str>> {
         alt((
-            map(
-                verify(take_while1(|c: char| !c.is_whitespace()), |s: &str| {
-                    s.chars().count() < 32
-                }),
-                |s: &str| Identifier::Username(s.into()),
-            ),
-            map(take(64usize), |s: &str| Identifier::Hash(s.into())),
+            take_while1(|c: char| !c.is_whitespace())
+                .verify(|s: &&str| s.chars().count() == 32)
+                .map(|s: &str| Identifier::Username(s.into())),
+            take(64usize).map(|s: &str| Identifier::Hash(s.into())),
         ))(input)
     }
 }
@@ -67,7 +66,7 @@ where
 }
 
 impl<'a> TryFrom<&'a str> for Identifier {
-    type Error = nom::error::Error<&'a str>;
+    type Error = ErrorTree<&'a str>;
 
     fn try_from(input: &'a str) -> Result<Self, Self::Error> {
         let span = LocatedSpan::new(input);

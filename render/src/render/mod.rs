@@ -30,7 +30,7 @@ use self::renderer::{
 pub struct RenderCommand {
     destination: DestinationKind,
     step: Step,
-    skip: usize,
+    _skip: usize,
     offset: (u32, u32),
     background: DynamicFrame,
     palette: Palette,
@@ -78,7 +78,7 @@ impl RenderCommand {
             match palette {
                 // TODO: Redo palette parser error handling
                 PaletteSource::File(path) => PaletteParser::try_parse(&path).unwrap(),
-                PaletteSource::Array(p) => p,
+                PaletteSource::_Array(p) => p,
             }
         } else {
             DEFAULT_PALETTE.to_vec()
@@ -87,7 +87,7 @@ impl RenderCommand {
         Ok(Self {
             destination: config.destination.kind,
             step: config.step,
-            skip: 0,
+            _skip: 0,
             offset,
             background,
             palette,
@@ -266,8 +266,9 @@ impl RenderCommand {
     }
 }
 
-#[derive(Debug, Copy, Clone, PartialEq)]
+#[derive(Debug, Default, Copy, Clone, PartialEq)]
 pub enum RenderMethod {
+    #[default]
     Normal,
     Heat(NonZeroI64),
     Virgin,
@@ -325,12 +326,6 @@ impl<'a> TryFrom<&'a str> for RenderMethod {
     }
 }
 
-impl Default for RenderMethod {
-    fn default() -> Self {
-        RenderMethod::Normal
-    }
-}
-
 #[derive(Debug, Copy, Clone)]
 pub enum Step {
     // TODO: Duration
@@ -353,11 +348,11 @@ impl Default for Step {
     }
 }
 
-fn rgba_to_yuv420_size(width: u32, height: u32) -> usize {
+fn _rgba_to_yuv420_size(width: u32, height: u32) -> usize {
     (width * height * 3 / 2) as usize
 }
 
-fn rgba_data_to_yuv420_data(yuv: &mut [u8], img: &[u8], width: u32, height: u32) {
+fn _rgba_data_to_yuv420_data(yuv: &mut [u8], img: &[u8], width: u32, height: u32) {
     assert_eq!(height % 2, 0);
     assert_eq!(width % 2, 0);
 
@@ -371,7 +366,7 @@ fn rgba_data_to_yuv420_data(yuv: &mut [u8], img: &[u8], width: u32, height: u32)
             let r = i32::from(img[4 * index.0]);
             let g = i32::from(img[4 * index.0 + 1]);
             let b = i32::from(img[4 * index.0 + 2]);
-            yuv[index.0] = clamp(((66 * r + 129 * g + 25 * b) >> 8) + 16);
+            yuv[index.0] = _clamp(((66 * r + 129 * g + 25 * b) >> 8) + 16);
             let mut r_total = r;
             let mut g_total = g;
             let mut b_total = b;
@@ -380,7 +375,7 @@ fn rgba_data_to_yuv420_data(yuv: &mut [u8], img: &[u8], width: u32, height: u32)
             let r = i32::from(img[4 * index.0]);
             let g = i32::from(img[4 * index.0 + 1]);
             let b = i32::from(img[4 * index.0 + 2]);
-            yuv[index.0] = clamp(((66 * r + 129 * g + 25 * b) >> 8) + 16);
+            yuv[index.0] = _clamp(((66 * r + 129 * g + 25 * b) >> 8) + 16);
             r_total += r;
             g_total += g;
             b_total += b;
@@ -389,7 +384,7 @@ fn rgba_data_to_yuv420_data(yuv: &mut [u8], img: &[u8], width: u32, height: u32)
             let r = i32::from(img[4 * index.1]);
             let g = i32::from(img[4 * index.1 + 1]);
             let b = i32::from(img[4 * index.1 + 2]);
-            yuv[index.1] = clamp(((66 * r + 129 * g + 25 * b) >> 8) + 16);
+            yuv[index.1] = _clamp(((66 * r + 129 * g + 25 * b) >> 8) + 16);
             r_total += r;
             g_total += g;
             b_total += b;
@@ -398,7 +393,7 @@ fn rgba_data_to_yuv420_data(yuv: &mut [u8], img: &[u8], width: u32, height: u32)
             let r = i32::from(img[4 * index.1]);
             let g = i32::from(img[4 * index.1 + 1]);
             let b = i32::from(img[4 * index.1 + 2]);
-            yuv[index.1] = clamp(((66 * r + 129 * g + 25 * b) >> 8) + 16);
+            yuv[index.1] = _clamp(((66 * r + 129 * g + 25 * b) >> 8) + 16);
             r_total += r;
             g_total += g;
             b_total += b;
@@ -407,8 +402,8 @@ fn rgba_data_to_yuv420_data(yuv: &mut [u8], img: &[u8], width: u32, height: u32)
             let r = r_total / 4;
             let g = g_total / 4;
             let b = b_total / 4;
-            yuv[u_index] = clamp(((-38 * r + -74 * g + 112 * b) >> 8) + 128);
-            yuv[v_index] = clamp(((112 * r + -94 * g + -18 * b) >> 8) + 128);
+            yuv[u_index] = _clamp(((-38 * r + -74 * g + 112 * b) >> 8) + 128);
+            yuv[v_index] = _clamp(((112 * r + -94 * g + -18 * b) >> 8) + 128);
             u_index += 1;
             v_index += 1;
         }
@@ -418,7 +413,7 @@ fn rgba_data_to_yuv420_data(yuv: &mut [u8], img: &[u8], width: u32, height: u32)
     }
 }
 
-fn clamp(val: i32) -> u8 {
+fn _clamp(val: i32) -> u8 {
     match val {
         ref v if *v < 0 => 0,
         ref v if *v > 255 => 255,

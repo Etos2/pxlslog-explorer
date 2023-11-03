@@ -3,14 +3,16 @@ use std::{path::{PathBuf, Path}, str::FromStr};
 const SOURCE_ALIAS: [&str; 2] = ["pipe:0", "stdin"];
 const DESTINATION_ALIAS: [&str; 2] = ["pipe:1", "stdout"];
 
-#[derive(Debug, Clone)]
+#[derive(Default, Debug, Clone)]
 pub enum Source {
+    #[default]
     Stdin,
     File(PathBuf)
 }
 
-#[derive(Debug, Clone)]
+#[derive(Default, Debug, Clone)]
 pub enum Destination {
+    #[default]
     Stdout,
     File(PathBuf)
 }
@@ -33,12 +35,6 @@ impl<T: ?Sized + AsRef<str>> From<&T> for Source {
     }
 }
 
-impl Default for Source {
-    fn default() -> Self {
-        Source::Stdin
-    }
-}
-
 impl FromStr for Destination {
     type Err = std::convert::Infallible;
 
@@ -57,12 +53,6 @@ impl<T: ?Sized + AsRef<str>> From<&T> for Destination {
     }
 }
 
-impl Default for Destination {
-    fn default() -> Self {
-        Destination::Stdout
-    }
-}
-
 pub fn is_file(path: impl AsRef<Path>) -> Result<(), std::io::Error> {
     let path = path.as_ref();
     let meta = std::fs::metadata(path)?;
@@ -78,7 +68,7 @@ pub fn is_file(path: impl AsRef<Path>) -> Result<(), std::io::Error> {
     Ok(())
 }
 
-pub fn is_dir(path: impl AsRef<Path>) -> Result<(), std::io::Error> {
+pub fn _is_dir(path: impl AsRef<Path>) -> Result<(), std::io::Error> {
     let path = path.as_ref();
     let meta = std::fs::metadata(path)?;
 

@@ -1,7 +1,6 @@
 use crate::config::PixelFormat;
 
 use super::pixel::{Pixel, Rgb, Rgba};
-use clap::ValueEnum;
 use image::{DynamicImage, RgbImage, RgbaImage};
 use num_integer::Roots;
 use rayon::prelude::*;

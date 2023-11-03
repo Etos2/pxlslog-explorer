@@ -6,23 +6,23 @@ use thiserror::Error;
 pub enum ConfigValue {
     ConfigSource,
     ProgramLogSource,
-    ProgramQuiet,
-    ProgramThreads,
-    ProgramDryRun,
-    MethodPalette,
-    MethodKind,
-    CanvasSource,
-    CanvasSize,
+    _ProgramQuiet,
+    _ProgramThreads,
+    _ProgramDryRun,
+    _MethodPalette,
+    _MethodKind,
+    _CanvasSource,
+    _CanvasSize,
     CanvasBackgroundSource,
-    CanvasTransparency,
+    _CanvasTransparency,
     DestinationKind,
     DestinationFormat,
-    Step,
+    _Step,
 }
 
 #[derive(Debug)]
 pub enum ConfigAlias {
-    Screenshot,
+    _Screenshot,
 }
 
 impl ConfigValue {
@@ -30,22 +30,22 @@ impl ConfigValue {
         match self {
             ConfigValue::ConfigSource => "config source",
             ConfigValue::ProgramLogSource => "program actions",
-            ConfigValue::ProgramQuiet => "program quiet",
-            ConfigValue::ProgramThreads => "program threads",
-            ConfigValue::ProgramDryRun => "program dry run",
-            ConfigValue::MethodPalette => "method palette",
-            ConfigValue::MethodKind => "method palette",
-            ConfigValue::CanvasSource => "canvas source",
-            ConfigValue::CanvasSize => "canvas source",
+            ConfigValue::_ProgramQuiet => "program quiet",
+            ConfigValue::_ProgramThreads => "program threads",
+            ConfigValue::_ProgramDryRun => "program dry run",
+            ConfigValue::_MethodPalette => "method palette",
+            ConfigValue::_MethodKind => "method palette",
+            ConfigValue::_CanvasSource => "canvas source",
+            ConfigValue::_CanvasSize => "canvas source",
             ConfigValue::CanvasBackgroundSource => "canvas background",
-            ConfigValue::CanvasTransparency => "canvas transparency",
+            ConfigValue::_CanvasTransparency => "canvas transparency",
             ConfigValue::DestinationKind => "destination kind",
             ConfigValue::DestinationFormat => "destination format",
-            ConfigValue::Step => "step",
+            ConfigValue::_Step => "step",
         }
     }
 
-    fn stringify_vec(values: &Vec<ConfigValue>) -> String {
+    fn stringify_vec(values: &[ConfigValue]) -> String {
         let mut iter = values.iter().map(ConfigValue::to_str);
         let mut out = "\"".to_string();
 
@@ -72,11 +72,11 @@ impl Display for ConfigValue {
 impl ConfigAlias {
     fn to_str(&self) -> &'static str {
         match self {
-            ConfigAlias::Screenshot => "screenshot",
+            ConfigAlias::_Screenshot => "screenshot",
         }
     }
 
-    fn stringify_vec(values: &Vec<ConfigAlias>) -> String {
+    fn _stringify_vec(values: &[ConfigAlias]) -> String {
         let mut iter = values.iter().map(ConfigAlias::to_str);
         let mut out = "\"".to_string();
 
@@ -113,13 +113,13 @@ pub enum ConfigError {
     #[error("required value {} not provided", ConfigValue::stringify_vec(.0))]
     MissingValue(Vec<ConfigValue>),
     #[error("value for \"{0}\" is invalid")]
-    InvalidValue(ConfigValue),
+    _InvalidValue(ConfigValue),
     // #[error("the path for \"{1}\" does not exist or is not a file ({0})")]
     // InvalidPath(ConfigValue, PathBuf, InvalidPathKind),
     #[error("\"{0}\" could not be infered with current values")]
     CannotInfer(ConfigValue),
     #[error("alias {0} overrides values that have already been declared {}", ConfigValue::stringify_vec(.1))]
-    AliasConflict(ConfigAlias, Vec<ConfigValue>),
+    _AliasConflict(ConfigAlias, Vec<ConfigValue>),
 }
 
 impl ConfigError {

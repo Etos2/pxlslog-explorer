@@ -29,7 +29,7 @@ pub fn read_toml(path: &Path) -> Result<Table, ConfigError> {
 }
 
 impl ConfigSource for Map<String, Value> {
-    fn get_config(source: Self) -> Result<ConfigBuilder, ConfigError> {
+    fn get_config(_source: Self) -> Result<ConfigBuilder, ConfigError> {
         todo!()
     }
 }

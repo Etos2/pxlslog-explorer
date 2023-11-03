@@ -1,11 +1,13 @@
-use std::{fmt::Display, path::PathBuf};
+use std::{path::PathBuf, fmt::Display};
 
 use chrono::ParseError;
 use thiserror::Error;
 
+pub type ActionParseResult<T> = Result<T, ActionParseError>;
+
 #[derive(Error, Debug)]
 pub struct ActionParseError {
-    location: Option<(u32, u32)>,
+    location: Option<(usize, usize)>,
     path: Option<PathBuf>,
     #[source]
     kind: ActionParseErrorKind,
@@ -15,22 +17,24 @@ pub struct ActionParseError {
 pub enum ActionParseErrorKind {
     #[error("{0}")]
     Io(#[from] std::io::Error),
-    #[error("time could not be parsed {1} ({0})")]
-    InvalidTime(String, ParseError),
-    #[error("identifier could not be parsed ({0})")]
-    InvalidIdentifier(String),
-    #[error("coordinates could not be parsed ({0})")]
-    InvalidCoord(String),
-    #[error("index could not be parsed ({0})")]
-    InvalidIndex(String),
-    #[error("kind could not be parsed ({0})")]
-    InvalidKind(String),
+    #[error("time could not be parsed ({0})")]
+    InvalidTime(ParseError),
+    #[error("identifier could not be parsed")]
+    InvalidIdentifier,
+    #[error("coordinates could not be parsed")]
+    InvalidCoord,
+    #[error("index could not be parsed")]
+    InvalidIndex,
+    #[error("kind could not be parsed")]
+    InvalidKind,
     #[error("expected end of line")]
     ExpectedEndOfLine,
     #[error("expected end of file")]
     ExpectedEof,
     #[error("unexpected end of file")]
     UnexpectedEof,
+    #[error("expected seperator ({0:?})")]
+    ExpectedSeperator(char),
 }
 
 impl ActionParseError {
@@ -40,7 +44,7 @@ impl ActionParseError {
         self
     }
 
-    pub fn with_position(mut self, line: u32, column: u32) -> Self {
+    pub fn with_position(mut self, line: usize, column: usize) -> Self {
         self.location = Some((line, column));
         self
     }

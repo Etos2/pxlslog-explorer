@@ -1,5 +1,8 @@
 use chrono::NaiveDateTime;
-use common::data::{action::Action, identifier::Identifier};
+use common::data::{
+    action::{Action, Index},
+    identifier::Identifier,
+};
 use predicates::{prelude::*, BoxPredicate};
 use sha2::{Digest, Sha256};
 
@@ -30,16 +33,20 @@ impl TryFrom<FilterArgs> for FilterPredicates {
 
         add_filter(&mut predicates, after, |a, time| a.time > time);
         add_filter(&mut predicates, before, |a, time| a.time < time);
-        add_filter(&mut predicates, value.colors, |a, index| index == a.index);
+        add_filter(&mut predicates, value.colors, |a, index| {
+            a.index.as_ref().is_some_and(|a_index| index == *a_index)
+        });
         add_filter(&mut predicates, value.regions, |a, region| {
             region.contains(a.x, a.y)
         });
         add_filter(&mut predicates, value.action_kinds, |a, kind| {
-            kind.0 == a.kind
+            a.kind.is_some_and(|a_kind| kind.0 == a_kind)
         });
-        add_filter(&mut predicates, value.users, |a, user| match user {
-            UserIdentifier::Key(key) => compare_action_to_key(&key, a),
-            UserIdentifier::Username(name) => a.user == name,
+        add_filter(&mut predicates, value.users, |a, user| {
+            a.user.as_ref().is_some_and(|a_user| match user {
+                UserIdentifier::Key(key) => compare_action_to_key(&key, a),
+                UserIdentifier::Username(name) => *a_user == name,
+            })
         });
 
         if predicates.is_empty() {
@@ -66,7 +73,7 @@ fn compare_action_to_key(key: &str, action: &Action) -> bool {
         .unwrap() // Safety: Fails in the year 262000, not my problem
         .format("%Y-%m-%d %H:%M:%S,%3f")
         .to_string();
-    if let Identifier::Hash(hash) = &action.user {
+    if let Some(Identifier::Hash(hash)) = &action.user {
         let mut hasher = Sha256::new();
         hasher.update(time.as_bytes());
         hasher.update(",");
@@ -74,7 +81,14 @@ fn compare_action_to_key(key: &str, action: &Action) -> bool {
         hasher.update(",");
         hasher.update(action.y.to_string().as_bytes());
         hasher.update(",");
-        hasher.update(action.index.to_string().as_bytes());
+        hasher.update(
+            action
+                .index
+                .as_ref()
+                .unwrap_or(&Index::Color(0))
+                .to_string()
+                .as_bytes(),
+        );
         hasher.update(",");
         hasher.update(key.as_bytes());
         let raw = hasher.finalize();

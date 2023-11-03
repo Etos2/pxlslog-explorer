@@ -173,7 +173,6 @@ impl RenderConfigBuilder {
         } else {
             eprintln!("Infered output was piped to STDOUT");
             self.destination_kind = Some(DestinationKind::Stdout);
-           // err_values.push(ConfigValue::DestinationKind)
         }
 
         if self.destination_format.is_none() {
@@ -188,7 +187,7 @@ impl RenderConfigBuilder {
     }
 
     fn check_paths(&self) -> Result<(), ConfigError> {
-        if let Some(DestinationKind::Dir(path)) = &self.destination_kind {
+        if let Some(DestinationKind::_Dir(path)) = &self.destination_kind {
             io::is_file_or_dir(path).map_err(|e| {
                 ConfigError::Io(ConfigValue::DestinationKind, path.to_path_buf(), e)
             })?;

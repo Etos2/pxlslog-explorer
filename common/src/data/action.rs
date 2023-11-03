@@ -1,16 +1,6 @@
 use std::str::FromStr;
 
-use anyhow::Result;
 use chrono::NaiveDateTime;
-use nom::{
-    bytes::complete::{take, take_while1},
-    character::complete::{self, multispace1},
-    combinator::map_res,
-    IResult, Parser,
-};
-use nom_supreme::{error::ErrorTree, final_parser::Location};
-use nom_supreme::{final_parser::final_parser, ParserExt};
-
 use super::{actionkind::ActionKind, identifier::Identifier, DATE_FMT};
 
 #[derive(Clone, Debug, PartialEq)]
@@ -23,7 +13,7 @@ impl FromStr for Index {
     type Err = <usize as FromStr>::Err;
 
     fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
-        if s.len() == 2 && s == "-1" {
+        if s == "-1" {
             Ok(Index::Transparent)
         } else {
             Ok(Index::Color(s.parse()?))
@@ -43,55 +33,47 @@ impl ToString for Index {
 #[derive(Clone, Debug, PartialEq)]
 pub struct Action {
     pub time: i64,
-    pub user: Identifier,
+    pub user: Option<Identifier>,
     pub x: u32,
     pub y: u32,
-    pub index: Index,
-    pub kind: ActionKind,
+    pub index: Option<Index>,
+    pub kind: Option<ActionKind>,
 }
 
-impl Action {
-    fn parse(input: &str) -> IResult<&str, Self, ErrorTree<&str>> {
-        let (input, time) = map_res(take(23usize), |t| {
-            NaiveDateTime::parse_from_str(t, DATE_FMT).map(|t| t.timestamp_millis())
-        })
-        .context("date")
-        .parse(input)?;
+// impl Action {
+//     fn parse(input: &str) -> IResult<&str, Self, ErrorTree<&str>> {
+//         let (input, time) = map_res(take(23usize), |t| {
+//             NaiveDateTime::parse_from_str(t, DATE_FMT).map(|t| t.timestamp_millis())
+//         })
+//         .context("date")
+//         .parse(input)?;
 
-        let (input, _) = multispace1(input)?;
-        let (input, user) = Identifier::parse(input).unwrap();
-        let (input, _) = multispace1(input)?;
-        let (input, x) = complete::u32(input)?;
-        let (input, _) = multispace1(input)?;
-        let (input, y) = complete::u32(input)?;
-        let (input, _) = multispace1(input)?;
-        let (input, index) = map_res(take_while1(|c: char| !c.is_whitespace()), Index::from_str)
-            .context("index")
-            .parse(input)?;
-        let (input, _) = multispace1(input)?;
-        let (input, kind) = ActionKind::parse(input).unwrap();
+//         let (input, _) = multispace1(input)?;
+//         let (input, user) = Identifier::parse(input).unwrap();
+//         let (input, _) = multispace1(input)?;
+//         let (input, x) = complete::u32(input)?;
+//         let (input, _) = multispace1(input)?;
+//         let (input, y) = complete::u32(input)?;
+//         let (input, _) = multispace1(input)?;
+//         let (input, index) = map_res(take_while1(|c: char| !c.is_whitespace()), Index::from_str)
+//             .context("index")
+//             .parse(input)?;
+//         let (input, _) = multispace1(input)?;
+//         let (input, kind) = ActionKind::parse(input).unwrap();
 
-        Ok((
-            input,
-            Action {
-                time,
-                user,
-                x,
-                y,
-                index,
-                kind,
-            },
-        ))
-    }
-}
-
-impl TryFrom<&str> for Action {
-    type Error = ErrorTree<Location>;
-
-    fn try_from(input: &str) -> Result<Self, ErrorTree<Location>> {
-        final_parser(Self::parse)(input)
-    }
-}
+//         Ok((
+//             input,
+//             Action {
+//                 time,
+//                 user,
+//                 x,
+//                 y,
+//                 index,
+//                 kind,
+//             },
+//         ))
+//     }
+// }
 
 impl ToString for Action {
     fn to_string(&self) -> String {
@@ -100,15 +82,23 @@ impl ToString for Action {
             .format(DATE_FMT)
             .to_string();
         out += "\t";
-        out += self.user.get();
+        out += self
+            .user
+            .as_ref()
+            .unwrap_or(&Identifier::Username("Null".to_string()))
+            .get();
         out += "\t";
         out += &self.x.to_string();
         out += "\t";
         out += &self.y.to_string();
         out += "\t";
-        out += &self.index.to_string();
+        out += &self
+            .index
+            .as_ref()
+            .unwrap_or(&Index::Transparent)
+            .to_string();
         out += "\t";
-        out += &self.kind.to_string();
+        out += &self.kind.unwrap_or(ActionKind::Place).to_string();
         out
     }
 }

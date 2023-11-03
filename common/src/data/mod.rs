@@ -1,4 +1,3 @@
-pub mod error;
 pub mod action;
 pub mod actionkind;
 pub mod actions;

@@ -10,7 +10,8 @@ use std::{
 
 use clap::Parser;
 
-use common::data::action::Action;
+use common::parse::pxlslog::PxlsLogParser;
+use common::parse::ActionParser;
 use error::{Error, ProgramResult};
 use filter::FilterPredicates;
 use interface::ProgramArgs;
@@ -36,9 +37,10 @@ fn main() -> ProgramResult<()> {
     let mut lines_removed = 0;
     let mut lines_errored = 0;
 
+    let mut parser = PxlsLogParser;
     for line in src_handle.lines() {
-        let line = line?;
-        match Action::try_from(line.as_str()) {
+        let line = line? + "\n";
+        match parser.parse_line(&line) {
             Ok(action) => {
                 if filters.eval(&action) {
                     let action_str = action.to_string() + "\n";
