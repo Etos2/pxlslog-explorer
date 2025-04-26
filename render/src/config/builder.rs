@@ -71,9 +71,9 @@ impl ProgramConfigBuilder {
         }
 
         Ok(ProgramConfig {
-            quiet: self.quiet.unwrap_or_default(),
+            _quiet: self.quiet.unwrap_or_default(),
             threads: self.threads.unwrap_or_default(),
-            dry_run: self.dry_run.unwrap_or_default(),
+            _dry_run: self.dry_run.unwrap_or_default(),
             log_source: self.log_source.ok_or(ConfigError::new_missing(vec![
                 ConfigValue::ProgramLogSource,
             ]))?,
@@ -135,8 +135,8 @@ impl RenderConfigBuilder {
             canvas: CanvasConfig {
                 source: self.canvas_source,
                 size: self.canvas_size,
-                background: self.canvas_background,
-                transparency: self.canvas_transparency.unwrap_or_default(),
+                _background: self.canvas_background,
+                _transparency: self.canvas_transparency.unwrap_or_default(),
             },
             step: self.step.unwrap_or_default(),
         })
