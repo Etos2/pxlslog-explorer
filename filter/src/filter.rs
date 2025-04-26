@@ -1,4 +1,4 @@
-use chrono::NaiveDateTime;
+use chrono::{DateTime, NaiveDateTime};
 use common::data::{
     action::{Action, Index},
     identifier::Identifier,
@@ -28,8 +28,8 @@ impl TryFrom<FilterArgs> for FilterPredicates {
 
     fn try_from(value: FilterArgs) -> Result<Self, Self::Error> {
         let mut predicates = Vec::new();
-        let after = value.after.map(|t| t.timestamp_millis());
-        let before = value.after.map(|t| t.timestamp_millis());
+        let after = value.after.map(|t| t.and_utc().timestamp_millis());
+        let before = value.after.map(|t| t.and_utc().timestamp_millis());
 
         add_filter(&mut predicates, after, |a, time| a.time > time);
         add_filter(&mut predicates, before, |a, time| a.time < time);
@@ -43,10 +43,10 @@ impl TryFrom<FilterArgs> for FilterPredicates {
             a.kind.is_some_and(|a_kind| kind.0 == a_kind)
         });
         add_filter(&mut predicates, value.users, |a, user| {
-            a.user.as_ref().is_some_and(|a_user| match user {
+            match user {
                 UserIdentifier::Key(key) => compare_action_to_key(&key, a),
-                UserIdentifier::Username(name) => *a_user == name,
-            })
+                UserIdentifier::Username(name) => a.user == name,
+            }
         });
 
         if predicates.is_empty() {
@@ -69,11 +69,11 @@ where
 }
 
 fn compare_action_to_key(key: &str, action: &Action) -> bool {
-    let time = NaiveDateTime::from_timestamp_millis(action.time)
+    let time = DateTime::from_timestamp_millis(action.time)
         .unwrap() // Safety: Fails in the year 262000, not my problem
         .format("%Y-%m-%d %H:%M:%S,%3f")
         .to_string();
-    if let Some(Identifier::Hash(hash)) = &action.user {
+    if let Identifier::Hash(hash) = &action.user {
         let mut hasher = Sha256::new();
         hasher.update(time.as_bytes());
         hasher.update(",");

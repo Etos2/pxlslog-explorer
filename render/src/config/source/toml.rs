@@ -18,7 +18,7 @@ pub fn read_toml(path: &Path) -> Result<Table, ConfigError> {
         Ok(_) => {
             let raw_toml = std::fs::read_to_string(path)
                 .map_err(|e| ConfigError::Io(ConfigValue::ConfigSource, path.to_path_buf(), e))?;
-            Ok(raw_toml.parse()?)
+            Ok(raw_toml.parse::<Table>()?)
         }
         Err(e) => Err(ConfigError::Io(
             ConfigValue::ConfigSource,

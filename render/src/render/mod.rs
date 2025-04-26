@@ -14,7 +14,7 @@ use crate::palette::{Palette, PaletteParser, DEFAULT_PALETTE};
 use crate::render::pixel::Pixel;
 
 use common::data::actions::ActionsView;
-use image::io::Reader as ImageReader;
+use image::ImageReader;
 use image::{imageops, ImageBuffer};
 use itertools::Itertools;
 use nonzero_ext::nonzero;
@@ -199,27 +199,34 @@ impl RenderCommand {
         // TODO (Etos2): Use iter to control if background is drawn first (--skip)
         let mut handle = BufWriter::new(handle);
 
+        let mut first = 0;
         match step {
             Step::Time(millis_per_frame) => actions
-                .group_by(|a| a.time / millis_per_frame.get())
+                .chunk_by(|a| a.time / millis_per_frame.get())
                 .into_iter()
-                .try_for_each(|(_, action_group)| -> anyhow::Result<()> {
+                .try_for_each(|(a, action_group)| -> anyhow::Result<()> {
+                    if first == 0 {
+                        first = a;
+                    }
+                    let current_group = a - first;
+                    if current_group % 100 == 0 {
+                        eprintln!("Rendering group {}", current_group);
+                    }
                     renderer.update(action_group, frame);
                     handle.write_all(frame.as_formatted_raw())?;
-                    handle.flush()?;
                     Ok(())
-                })?,
+                }).unwrap(),
             Step::Pixels(pixels_per_frame) => actions
                 .chunks(pixels_per_frame.get().try_into()?)
                 .into_iter()
                 .try_for_each(|action_group| -> anyhow::Result<()> {
                     renderer.update(action_group, frame);
                     handle.write_all(frame.as_formatted_raw())?;
-                    handle.flush()?;
                     Ok(())
                 })?,
         }
 
+        handle.flush()?;
         Ok(())
     }
 
@@ -236,7 +243,7 @@ impl RenderCommand {
         match step {
             Step::Time(millis_per_frame) => {
                 for (_, action_group) in
-                    &actions.group_by(|a| a.time / millis_per_frame.get())
+                    &actions.chunk_by(|a| a.time / millis_per_frame.get())
                 {
                     renderer.update(action_group, frame);
                     image::save_buffer(

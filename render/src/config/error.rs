@@ -118,8 +118,8 @@ pub enum ConfigError {
     // InvalidPath(ConfigValue, PathBuf, InvalidPathKind),
     #[error("\"{0}\" could not be infered with current values")]
     CannotInfer(ConfigValue),
-    #[error("alias {0} overrides values that have already been declared {}", ConfigValue::stringify_vec(.1))]
-    _AliasConflict(ConfigAlias, Vec<ConfigValue>),
+    // #[error("alias {0} overrides values that have already been declared {}", ConfigValue::stringify_vec(.1))]
+    // _AliasConflict(ConfigAlias, Vec<ConfigValue>),
 }
 
 impl ConfigError {

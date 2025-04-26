@@ -60,7 +60,7 @@ fn parse_line(input: &str) -> IResult<&str, Action, ErrorTree<&str>> {
         input,
         Action {
             time,
-            user: Some(user),
+            user,
             x,
             y,
             index: Some(index),
@@ -94,7 +94,7 @@ fn parse_line_opt(input: &str, flag: ActionParseFlags) -> IResult<&str, Action, 
         input,
         Action {
             time,
-            user,
+            user: user.unwrap_or(Identifier::None),
             x,
             y,
             index,

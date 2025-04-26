@@ -1,6 +1,6 @@
 use std::fmt::Display;
 
-use chrono::NaiveDateTime;
+use chrono::DateTime;
 use common::data::DATE_FMT;
 use image::ImageError;
 use nom_supreme::{error::ErrorTree, final_parser::Location};
@@ -50,11 +50,11 @@ impl Display for ActionErrorKind {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             ActionErrorKind::_OutOfOrder { time, prev_time } => {
-                let time_str = NaiveDateTime::from_timestamp_millis(*time)
+                let time_str = DateTime::from_timestamp_millis(*time)
                     .unwrap() // Safety: Fails in the year 262000, not my problem
                     .format(DATE_FMT)
                     .to_string();
-                let prev_time_str = NaiveDateTime::from_timestamp_millis(*prev_time)
+                let prev_time_str = DateTime::from_timestamp_millis(*prev_time)
                     .unwrap() // Safety: Fails in the year 262000, not my problem
                     .format(DATE_FMT)
                     .to_string();

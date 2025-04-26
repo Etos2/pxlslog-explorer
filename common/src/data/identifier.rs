@@ -1,6 +1,6 @@
 use nom::{
     branch::alt,
-    bytes::complete::{take, take_while1},
+    bytes::complete::{tag, take, take_while1},
     combinator::all_consuming,
     Finish, IResult, Parser,
 };
@@ -22,13 +22,15 @@ pub enum ParseIdentifierError {
 pub enum Identifier {
     Hash(String),
     Username(String),
+    None,
 }
 
 impl Identifier {
-    pub fn is_key(&self) -> bool {
+    pub fn is_hashed(&self) -> bool {
         match self {
             Identifier::Hash(_) => true,
             Identifier::Username(_) => false,
+            Identifier::None => false,
         }
     }
 
@@ -36,20 +38,23 @@ impl Identifier {
         match self {
             Identifier::Hash(_) => false,
             Identifier::Username(_) => true,
+            Identifier::None => false,
         }
     }
 
-    pub fn get(&self) -> &str {
+    pub fn get(&self) -> Option<&str> {
         match self {
-            Identifier::Hash(s) => s,
-            Identifier::Username(s) => s,
+            Identifier::Hash(s) => Some(s),
+            Identifier::Username(s) => Some(s),
+            Identifier::None => None,
         }
     }
 
     pub(crate) fn parse(input: &str) -> IResult<&str, Identifier, ErrorTree<&str>> {
         alt((
+            tag("dead").map(|_| Identifier::None),
             take_while1(|c: char| !c.is_whitespace())
-                .verify(|s: &&str| s.chars().count() == 32)
+                .verify(|s: &&str| s.chars().count() <= 32)
                 .map(|s: &str| Identifier::Username(s.into())),
             take(64usize).map(|s: &str| Identifier::Hash(s.into())),
         ))(input)
@@ -61,7 +66,7 @@ where
     T: AsRef<str>,
 {
     fn eq(&self, other: &T) -> bool {
-        self.get() == other.as_ref()
+        self.get().map(|id| id == other.as_ref()).unwrap_or(false)
     }
 }
 
@@ -80,6 +85,6 @@ impl<'a> TryFrom<&'a str> for Identifier {
 
 impl ToString for Identifier {
     fn to_string(&self) -> String {
-        self.get().to_string()
+        self.get().map(str::to_string).unwrap_or("null".to_string())
     }
 }

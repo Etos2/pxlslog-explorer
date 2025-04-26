@@ -87,8 +87,8 @@ impl ActionsBuilder {
 
     pub fn push(&mut self, action: Action) -> &mut Self {
         self.time.push(action.time);
-        if let Some(a_user) = action.user {
-            self.user.push(a_user);
+        if action.user != Identifier::None {
+            self.user.push(action.user);
         }
         self.coord.push((action.x, action.y));
         if let Some(a_index) = action.index {

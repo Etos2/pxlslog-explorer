@@ -1,7 +1,7 @@
 [package]
 name = "common"
-version = "0.1.0"
-edition = "2021"
+version = "0.1.1"
+edition = "2024"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
@@ -13,11 +13,11 @@ nom = "7.1"
 nom-supreme = "0.8"
 num-traits = "0.2.15"
 bitflags = "2.3"
-thiserror = "1.0.44"
-nom_locate = "4.1.0"
+thiserror = "2.0"
+nom_locate = "5.0"
 
 [dev-dependencies]
 arbitrary = "1.2"
-arbtest = "0.2"
+arbtest = "0.3"
 assert_cmd = "2.0.8"
 assert_fs = "1.0.10"

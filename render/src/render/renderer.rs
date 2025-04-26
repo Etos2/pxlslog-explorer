@@ -181,7 +181,7 @@ impl ActionRenderer for RendererHeat {
             }
         }
 
-        frame.put_from_par_iter(self.heat_map.par_iter().map(|heat| {
+        frame.put_from_iter(self.heat_map.iter().map(|heat| {
             if let Some(delta) = heat {
                 let diff = (self.step.get() * self.current_step - delta.get()) as f64 / self.window; //10800000.0;
                 if diff < 1.0 {
@@ -344,12 +344,13 @@ fn color_lerp(color: Rgba, val: f32) -> Rgba {
 #[cfg(test)]
 mod test {
     use arbitrary::*;
+    use arbtest::arbtest;
 
     use super::*;
 
     #[test]
     fn color_interpolation() {
-        arbtest::builder().run(|u| {
+        arbtest(|u| {
             let color = Rgba::from(<[u8; 4]>::arbitrary(u)?);
             let r = color.0[0];
             let g = color.0[1];

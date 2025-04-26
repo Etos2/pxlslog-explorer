@@ -1,7 +1,7 @@
 use std::str::FromStr;
 
-use chrono::NaiveDateTime;
 use super::{actionkind::ActionKind, identifier::Identifier, DATE_FMT};
+use chrono::{DateTime, NaiveDateTime};
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum Index {
@@ -33,7 +33,7 @@ impl ToString for Index {
 #[derive(Clone, Debug, PartialEq)]
 pub struct Action {
     pub time: i64,
-    pub user: Option<Identifier>,
+    pub user: Identifier,
     pub x: u32,
     pub y: u32,
     pub index: Option<Index>,
@@ -77,16 +77,12 @@ pub struct Action {
 
 impl ToString for Action {
     fn to_string(&self) -> String {
-        let mut out = NaiveDateTime::from_timestamp_millis(self.time)
+        let mut out = DateTime::from_timestamp_millis(self.time)
             .unwrap() // Safety: Fails in the year 262000, not my problem
             .format(DATE_FMT)
             .to_string();
         out += "\t";
-        out += self
-            .user
-            .as_ref()
-            .unwrap_or(&Identifier::Username("Null".to_string()))
-            .get();
+        out += self.user.get().unwrap_or("dead");
         out += "\t";
         out += &self.x.to_string();
         out += "\t";

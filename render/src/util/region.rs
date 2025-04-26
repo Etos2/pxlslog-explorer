@@ -74,6 +74,7 @@ where
 mod test {
     use super::*;
     use arbitrary::*;
+    use arbtest::arbtest;
 
     impl<'a, T> Arbitrary<'a> for Region<T>
     where
@@ -104,7 +105,7 @@ mod test {
 
     #[test]
     fn region_new() {
-        arbtest::builder().run(|u| {
+        arbtest(|u| {
             let (x1, y1, x2, y2) = <(u32, u32, u32, u32)>::arbitrary(u)?;
             let region = Region::new(x1, y1, x2, y2);
 
@@ -123,7 +124,7 @@ mod test {
 
     #[test]
     fn region_new_point() {
-        arbtest::builder().run(|u| {
+        arbtest(|u| {
             let (x, y) = <(u32, u32)>::arbitrary(u)?;
             let region = Region::new(x, y, x, y);
 
@@ -150,7 +151,7 @@ mod test {
 
     #[test]
     fn region_from_slice() {
-        arbtest::builder().run(|u| {
+        arbtest(|u| {
             let items = <Vec<u32>>::arbitrary(u)?;
 
             if (1..=4).contains(&items.len()) {
@@ -172,7 +173,7 @@ mod test {
 
     #[test]
     fn region_fields() {
-        arbtest::builder().run(|u| {
+        arbtest(|u| {
             let region = Region::<u32>::arbitrary(u)?;
             assert_eq!(region.start(), region.start);
             assert_eq!(region.end(), region.end);
@@ -184,7 +185,7 @@ mod test {
 
     #[test]
     fn region_contains() {
-        arbtest::builder().run(|u| {
+        arbtest(|u| {
             let region = Region::<u32>::arbitrary(u)?;
             let (x, y) = <(u32, u32)>::arbitrary(u)?;
             if x >= region.start.0 && x <= region.end.0 && y >= region.start.1 && y <= region.end.1

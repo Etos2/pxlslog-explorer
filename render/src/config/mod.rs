@@ -74,8 +74,8 @@ pub struct DestinationConfig {
 pub struct CanvasConfig {
     pub source: Option<PathBuf>,
     pub size: Option<(u32, u32, u32, u32)>,
-    pub background: Option<Rgba>,
-    pub transparency: bool,
+    pub _background: Option<Rgba>,
+    pub _transparency: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -89,7 +89,7 @@ pub struct RenderConfig {
 #[derive(Debug, Clone)]
 pub struct ProgramConfig {
     pub log_source: Source,
-    pub quiet: bool,
+    pub _quiet: bool,
     pub threads: usize,
-    pub dry_run: bool,
+    pub _dry_run: bool,
 }
