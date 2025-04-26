@@ -89,7 +89,7 @@ pub struct RenderConfig {
 #[derive(Debug, Clone)]
 pub struct ProgramConfig {
     pub log_source: Source,
-    pub _quiet: bool,
+    pub quiet: bool,
     pub threads: usize,
     pub _dry_run: bool,
 }

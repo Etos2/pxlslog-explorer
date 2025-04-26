@@ -7,10 +7,10 @@ mod util;
 use std::{fs::File, io::BufReader};
 
 use clap::Parser;
-use common::parse::pxlslog::PxlsLogParser;
 use common::parse::ActionsParser;
+use common::parse::pxlslog::PxlsLogParser;
 use config::{
-    builder::BuilderOverride, source::cli::CliData, source::toml::read_toml, source::ConfigSource,
+    builder::BuilderOverride, source::ConfigSource, source::cli::CliData, source::toml::read_toml,
 };
 use error::RuntimeError;
 use rayon::ThreadPoolBuilder;
@@ -33,7 +33,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .num_threads(config.threads)
         .build_global()?;
 
-    eprintln!("Parsing actions...");
+    if !config.quiet {
+        eprintln!("Parsing actions...");
+    }
 
     // TODO: Get flags from render styles
     let mut parser = PxlsLogParser;
@@ -53,26 +55,29 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     };
 
-    eprintln!("Parsed actions");
+    if !config.quiet {
+        eprintln!("Parsed actions");
 
-    eprintln!("Time: {:?}", actions.time.len());
-    eprintln!("User: {:?}", actions.user.as_ref().map(|v| v.len()));
-    eprintln!("Pos:  {:?}", actions.coord.len());
-    eprintln!("Index:{:?}", actions.index.as_ref().map(|v| v.len()));
-    eprintln!("Kind: {:?}", actions.kind.as_ref().map(|v| v.len()));
-    eprintln!("Bound:{:?}", actions.bounds);
+        eprintln!("Time: {:?}", actions.time.len());
+        eprintln!("User: {:?}", actions.user.as_ref().map(|v| v.len()));
+        eprintln!("Pos:  {:?}", actions.coord.len());
+        eprintln!("Index:{:?}", actions.index.as_ref().map(|v| v.len()));
+        eprintln!("Kind: {:?}", actions.kind.as_ref().map(|v| v.len()));
+        eprintln!("Bound:{:?}", actions.bounds);
+    }
 
-    // let (actions, bounds) = match &config.log_source {
-    //     util::io::Source::Stdin => get_actions(std::io::stdin())?,
-    //     util::io::Source::File(path) => get_actions(File::open(path).map_err(RuntimeError::from)?)?,
-    // };
+    if !config.quiet {
+        eprintln!("Rendering actions...");
+    }
 
-    eprintln!("Rendering actions...");
     for render_config in render_configs {
         let command = RenderCommand::new(render_config, actions.bounds)?;
         command.run(actions.iter())?;
     }
-    eprintln!("Rendered action");
+
+    if !config.quiet {
+        eprintln!("Rendered action");
+    }
 
     Ok(())
 }

@@ -1,18 +1,15 @@
-use std::{
-    ffi::OsStr,
-    path::PathBuf,
-};
+use std::{ffi::OsStr, path::PathBuf};
 
-use itertools::{izip, Itertools};
+use itertools::{Itertools, izip};
 
 use super::{
-    error::{ConfigError, ConfigValue},
     CanvasConfig, DestinationConfig, DestinationKind, MethodConfig, MethodKind, PaletteSource,
     PixelFormat, ProgramConfig, RenderConfig,
+    error::{ConfigError, ConfigValue},
 };
 use crate::{
-    render::{pixel::Rgba, Step},
-    util::io::{Source, self},
+    render::{Step, pixel::Rgba},
+    util::io::{self, Source},
 };
 
 // TODO: Verify if true + verify transparency support
@@ -33,11 +30,13 @@ pub struct ConfigBuilder {
 
 impl ConfigBuilder {
     pub fn build(self) -> Result<(ProgramConfig, Vec<RenderConfig>), ConfigError> {
+        let program_config = self.program.build()?;
+        let quiet = program_config.quiet;
         Ok((
-            self.program.build()?,
+            program_config,
             self.render
                 .into_iter()
-                .map(|r| r.or(&self.render_base).build())
+                .map(|r| r.or(&self.render_base).build(quiet))
                 .try_collect()?,
         ))
     }
@@ -71,7 +70,7 @@ impl ProgramConfigBuilder {
         }
 
         Ok(ProgramConfig {
-            _quiet: self.quiet.unwrap_or_default(),
+            quiet: self.quiet.unwrap_or_default(),
             threads: self.threads.unwrap_or_default(),
             _dry_run: self.dry_run.unwrap_or_default(),
             log_source: self.log_source.ok_or(ConfigError::new_missing(vec![
@@ -119,8 +118,8 @@ impl RenderConfigBuilder {
         }
     }
 
-    fn build(mut self) -> Result<RenderConfig, ConfigError> {
-        self.verify()?;
+    fn build(mut self, quiet: bool) -> Result<RenderConfig, ConfigError> {
+        self.verify(quiet)?;
         self.check_paths()?;
 
         Ok(RenderConfig {
@@ -142,7 +141,7 @@ impl RenderConfigBuilder {
         })
     }
 
-    fn verify(&mut self) -> Result<(), ConfigError> {
+    fn verify(&mut self, quiet: bool) -> Result<(), ConfigError> {
         let mut err_values = Vec::new();
         if let Some(kind) = &self.destination_kind {
             if let DestinationKind::File(path) = kind {
@@ -151,16 +150,22 @@ impl RenderConfigBuilder {
                         match self.canvas_transparency {
                             Some(transparent) => {
                                 if transparent {
-                                    eprintln!("Infered output format as RGBA");
+                                    if !quiet {
+                                        eprintln!("Infered output format as RGBA");
+                                    }
                                     self.destination_format = Some(PixelFormat::Rgba);
                                 } else {
-                                    eprintln!("Infered output format as RGB");
+                                    if !quiet {
+                                        eprintln!("Infered output format as RGB");
+                                    }
                                     self.destination_format = Some(PixelFormat::Rgb);
                                 }
                             }
                             None => {
-                                eprintln!("Infered canvas as transparent");
-                                eprintln!("Infered output format as RGBA");
+                                if !quiet {
+                                    eprintln!("Infered canvas as transparent");
+                                    eprintln!("Infered output format as RGBA");
+                                }
                                 self.canvas_transparency = Some(true);
                                 self.destination_format = Some(PixelFormat::Rgba);
                             }
@@ -171,7 +176,9 @@ impl RenderConfigBuilder {
                 Err(ConfigError::new_infer(ConfigValue::DestinationFormat))?
             }
         } else {
-            eprintln!("Infered output was piped to STDOUT");
+            if !quiet {
+                eprintln!("Infered output was piped to STDOUT");
+            }
             self.destination_kind = Some(DestinationKind::Stdout);
         }
 

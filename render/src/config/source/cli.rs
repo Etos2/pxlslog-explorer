@@ -50,7 +50,7 @@ pub struct ProgramSettings {
     pub log: Option<Source>,
     #[arg(short, long)]
     #[arg(help = "Silence all logging")]
-    pub quiet: Option<bool>,
+    pub quiet: bool,
     // #[arg(short, long, action = clap::ArgAction::Count)]
     // #[arg(help = "Enable verbosity")]
     // pub verbose: Option<u8>,
@@ -192,7 +192,7 @@ impl From<ProgramSettings> for ProgramConfigBuilder {
     fn from(value: ProgramSettings) -> Self {
         ProgramConfigBuilder {
             log_source: value.log,
-            quiet: value.quiet,
+            quiet: Some(value.quiet), // TODO: Cursed
             threads: value.threads,
             dry_run: value.dry_run,
         }

@@ -10,12 +10,12 @@ use std::path::Path;
 
 use crate::config::{DestinationKind, MethodKind, PaletteSource, RenderConfig};
 use crate::error::RuntimeError;
-use crate::palette::{Palette, PaletteParser, DEFAULT_PALETTE};
+use crate::palette::{DEFAULT_PALETTE, Palette, PaletteParser};
 use crate::render::pixel::Pixel;
 
 use common::data::actions::ActionsView;
 use image::ImageReader;
-use image::{imageops, ImageBuffer};
+use image::{ImageBuffer, imageops};
 use itertools::Itertools;
 use nonzero_ext::nonzero;
 
@@ -198,35 +198,28 @@ impl RenderCommand {
         // TODO (Etos2): Frame.write_size()
         // TODO (Etos2): Use iter to control if background is drawn first (--skip)
         let mut handle = BufWriter::new(handle);
-
-        let mut first = 0;
         match step {
             Step::Time(millis_per_frame) => actions
                 .chunk_by(|a| a.time / millis_per_frame.get())
                 .into_iter()
-                .try_for_each(|(a, action_group)| -> anyhow::Result<()> {
-                    if first == 0 {
-                        first = a;
-                    }
-                    let current_group = a - first;
-                    if current_group % 100 == 0 {
-                        eprintln!("Rendering group {}", current_group);
-                    }
+                .try_for_each(|(_, action_group)| -> anyhow::Result<()> {
                     renderer.update(action_group, frame);
                     handle.write_all(frame.as_formatted_raw())?;
+                    handle.flush()?;
                     Ok(())
-                }).unwrap(),
+                })
+                .unwrap(),
             Step::Pixels(pixels_per_frame) => actions
                 .chunks(pixels_per_frame.get().try_into()?)
                 .into_iter()
                 .try_for_each(|action_group| -> anyhow::Result<()> {
                     renderer.update(action_group, frame);
                     handle.write_all(frame.as_formatted_raw())?;
+                    handle.flush()?;
                     Ok(())
                 })?,
         }
 
-        handle.flush()?;
         Ok(())
     }
 
@@ -242,9 +235,7 @@ impl RenderCommand {
 
         match step {
             Step::Time(millis_per_frame) => {
-                for (_, action_group) in
-                    &actions.chunk_by(|a| a.time / millis_per_frame.get())
-                {
+                for (_, action_group) in &actions.chunk_by(|a| a.time / millis_per_frame.get()) {
                     renderer.update(action_group, frame);
                     image::save_buffer(
                         path.as_ref(),
