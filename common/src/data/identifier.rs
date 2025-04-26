@@ -52,11 +52,11 @@ impl Identifier {
 
     pub(crate) fn parse(input: &str) -> IResult<&str, Identifier, ErrorTree<&str>> {
         alt((
+            take(64usize).map(|s: &str| Identifier::Hash(s.into())),
             tag("dead").map(|_| Identifier::None),
             take_while1(|c: char| !c.is_whitespace())
                 .verify(|s: &&str| s.chars().count() <= 32)
                 .map(|s: &str| Identifier::Username(s.into())),
-            take(64usize).map(|s: &str| Identifier::Hash(s.into())),
         ))(input)
     }
 }
