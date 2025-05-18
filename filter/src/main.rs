@@ -39,7 +39,7 @@ fn main() -> ProgramResult<()> {
 
     let mut parser = PxlsLogParser;
     for line in src_handle.lines() {
-        let line = line? + "\n";
+        let line = line?;
         match parser.parse_line(&line) {
             Ok(action) => {
                 if filters.eval(&action) {
